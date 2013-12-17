@@ -25,7 +25,39 @@
 
 #define TIME_IDEL_MAX 20
 
+#define MAX_MESSAGE_PACKET_LEN 1024
+
 int check_timeout;
+
+struct message_packet {
+	struct list_head next;
+	int msg_type;
+	int msg_length;
+	int msg_version;
+	
+	union {
+		struct {
+			int name_len;
+			int passwd_len;
+			char * name;
+			char * passwd;
+		} login_info;
+
+		struct {
+			int from_len;
+			int to_len;
+			char * msg_from;
+			char * msg_to;
+		} msg_info;
+	};
+
+	char content[MAX_MESSAGE_PACKET_LEN];
+};
+
+struct msg_status {
+	char * position;
+	int left;
+};
 
 struct peer_info {
 	struct list_head next;
@@ -33,6 +65,13 @@ struct peer_info {
 	int skfd;
 	char addr_str[MAX_CLIENT_ADDR_BUF];
 	struct sockaddr_in addr;
+
+	struct message_packet * msg_input;
+	struct list_head * msg_output_list;
+	struct msg_status input_status;
+	struct msg_status output_status;
+	int (*get_msg)(struct msg_status * status, int skfd);
+	int (*put_msg)(struct msg_status * status, int skfd);
 };
 
 struct peer_info * peer_info_pool[MAX_PEER_INFO_COUNT];
@@ -180,6 +219,11 @@ int main()
 					now = time(NULL);
 					peer = malloc(sizeof(struct peer_info));
 					memset(peer, 0, sizeof(struct peer_info));
+
+					peer->msg_input = malloc(sizeof(struct message_packet));
+					peer->input_status.position = peer->msg_input->content;
+					peer->input_status.left = MSG_HEAD_LENGTH;
+					INIT_LIST_HEAD(&peer->msg_output_list);
 					
 					len = sizeof(struct sockaddr);
 					client_fd = accept(listen_sock, (struct sockaddr *)&client_addr, &len);
@@ -225,52 +269,40 @@ int main()
 				if (ep_responds[i].events & EPOLLIN)
 				{
 					printf("Client with POLLIN event\n");
-					while (1)
+
+					ret = peer->get_msg(&peer->input_status, peer->skfd);
+					if (ret == MSG_GET_FAILED)
 					{
-						rbyte = read(client_fd, msg_buffer, MAX_MSG_BUFFER_LEN);
-						if (rbyte == -1)
-						{
-							if (errno == EWOULDBLOCK || errno == EAGAIN)
-							{
-								list_del(&peer->next);
-								peer->time_last = time(NULL);
+						epoll_ctl(epfd, EPOLL_CTL_DEL, client_fd, NULL);
+						list_del(&peer->next);
+						close(peer->skfd);
+						peer_info_pool[client_fd] = NULL;
 
-								list_add_tail(&peer->next, &timeout_list);
-								break;
-							}
-
-							epoll_ctl(epfd, EPOLL_CTL_DEL, client_fd, NULL);
-							list_del(&peer->next);
-							close(peer->skfd);
-							peer_info_pool[client_fd] = NULL;
-
-							free(peer);
-							break;
-						}
-
-						if (rbyte == 0)
-							break;
-
-						msg_buffer[rbyte] = '\0';
-						fprintf(stdout, "[%d msg from %s] %s\n", peer->skfd, peer->addr_str, msg_buffer);
-
-						wbyte = write(client_fd, msg_buffer, rbyte);
+						free(peer->msg_input);
+						clear_output_msg(peer);
+						free(peer);
 					}
+					else
+					{
+						list_del(&peer->next);
+						peer->time_last = time(NULL);
+						list_add_tail(&peer->next, &timeout_list);
 
+						if (ret == MSG_GET_FINISH)
+						{
+							process_msg(peer->msg_input);
+
+							peer->msg_input = malloc(sizeof(struct message_packet));
+							peer->input_status.position = peer->msg_input->content;
+							peer->input_status.left = MSG_HEAD_LENGTH;
+						}
+					}
 				}
 
+				//here we output the message to the peer client
 				if (ep_responds[i].events & EPOLLOUT)
 				{
 					printf("Client with POLLOUT event\n");
-
-				}
-
-				if (ep_responds[i].events & EPOLLHUP)
-				{
-					printf("Client with POLLHUP event\n");
-					epoll_ctl(epfd, EPOLL_CTL_DEL, client_fd, NULL);
-
-					fprintf(stdout, "socket with fd %d leave out\n", client_fd);
 				}
 			}
 		}
