@@ -27,13 +27,34 @@
 
 #define MAX_MESSAGE_PACKET_LEN 1024
 
+#define MSG_HEAD_LENGTH 12
+
+
 int check_timeout;
+
+enum {
+	MSG_GET_FAILED,
+	MSG_GET_AGAIN,
+	MSG_GET_FINISH,
+};
+
+enum {
+	MSG_PHASE_GET_HEAD,
+	MSG_PHASE_GET_BODY,
+};
+
+enum {
+	MSG_TYPE_LOGIN,
+	MSG_TYPE_CHART,
+};
 
 struct message_packet {
 	struct list_head next;
-	int msg_type;
-	int msg_length;
-	int msg_version;
+	int msg_is_ok;
+
+	int type;
+	int length;
+	int version;
 	
 	union {
 		struct {
@@ -48,7 +69,7 @@ struct message_packet {
 			int to_len;
 			char * msg_from;
 			char * msg_to;
-		} msg_info;
+		} chart_info;
 	};
 
 	char content[MAX_MESSAGE_PACKET_LEN];
@@ -56,6 +77,7 @@ struct message_packet {
 
 struct msg_status {
 	char * position;
+	int phase;
 	int left;
 };
 
@@ -67,12 +89,14 @@ struct peer_info {
 	struct sockaddr_in addr;
 
 	struct message_packet * msg_input;
-	struct list_head * msg_output_list;
+	struct list_head msg_output_list;
 	struct msg_status input_status;
 	struct msg_status output_status;
-	int (*get_msg)(struct msg_status * status, int skfd);
+	int (*get_msg)(struct message_packet * msg, struct msg_status * status, int skfd);
 	int (*put_msg)(struct msg_status * status, int skfd);
 };
+
+extern int get_message(struct message_packet * msg, struct msg_status * status, int fd);
 
 struct peer_info * peer_info_pool[MAX_PEER_INFO_COUNT];
 
@@ -123,6 +147,31 @@ void sig_hand_alarm(int sig)
 {
 	printf("I am timeout\n");
 	check_timeout = 1;
+}
+
+struct message_packet * initial_new_input_msg(struct msg_status * status)
+{
+	struct message_packet * packet;
+	packet = malloc(sizeof(struct message_packet));
+	status->position = packet->content;
+	status->left = MSG_HEAD_LENGTH;
+	status->phase = MSG_PHASE_GET_HEAD;
+
+	return packet;
+}
+
+void process_message(struct message_packet * msg, struct peer_info * peer)
+{
+
+}
+
+void destroy_peer_info(struct peer_info * peer)
+{
+	free(peer->msg_input);
+
+	//clear the output msg packets
+	
+	free(peer);
 }
 
 int main()
@@ -220,11 +269,10 @@ int main()
 					peer = malloc(sizeof(struct peer_info));
 					memset(peer, 0, sizeof(struct peer_info));
 
-					peer->msg_input = malloc(sizeof(struct message_packet));
-					peer->input_status.position = peer->msg_input->content;
-					peer->input_status.left = MSG_HEAD_LENGTH;
+					peer->msg_input = initial_new_input_msg(&peer->input_status);
 					INIT_LIST_HEAD(&peer->msg_output_list);
-					
+					peer->get_msg = get_message;
+
 					len = sizeof(struct sockaddr);
 					client_fd = accept(listen_sock, (struct sockaddr *)&client_addr, &len);
 					if (client_fd == -1)
@@ -270,7 +318,7 @@ int main()
 				{
 					printf("Client with POLLIN event\n");
 
-					ret = peer->get_msg(&peer->input_status, peer->skfd);
+					ret = peer->get_msg(peer->msg_input, &peer->input_status, peer->skfd);
 					if (ret == MSG_GET_FAILED)
 					{
 						epoll_ctl(epfd, EPOLL_CTL_DEL, client_fd, NULL);
@@ -278,9 +326,7 @@ int main()
 						close(peer->skfd);
 						peer_info_pool[client_fd] = NULL;
 
-						free(peer->msg_input);
-						clear_output_msg(peer);
-						free(peer);
+						destroy_peer_info(peer);
 					}
 					else
 					{
@@ -290,11 +336,9 @@ int main()
 
 						if (ret == MSG_GET_FINISH)
 						{
-							process_msg(peer->msg_input);
+							process_message(peer->msg_input, peer);
 
-							peer->msg_input = malloc(sizeof(struct message_packet));
-							peer->input_status.position = peer->msg_input->content;
-							peer->input_status.left = MSG_HEAD_LENGTH;
+							peer->msg_input = initial_new_input_msg(&peer->input_status);
 						}
 					}
 				}
@@ -309,4 +353,87 @@ int main()
 
 		sigprocmask(SIG_SETMASK, &sig_orig, NULL);
 	}
+}
+
+void message_parse_head(struct message_packet * msg)
+{
+	char * p = msg->content;
+
+	msg->version = ntohl(*(int *)p);
+	p += 4;
+
+	msg->type = ntohl(*(int *)p);
+	p += 4;
+
+	msg->length = ntohl(*(int *)p);
+}
+
+void message_parse_body(struct message_packet * msg)
+{
+	char * p = msg->content;
+
+	switch (msg->type)
+	{
+		case MSG_TYPE_LOGIN:
+			break;
+		case MSG_TYPE_CHART:
+			break;
+		default:
+			break;
+	}
+}
+
+int get_message(struct message_packet * msg, struct msg_status * status, int fd)
+{
+	int rbyte;
+	char * p;
+	int left;
+
+	p = status->position;
+	left = status->left;
+
+	while (1)
+	{
+		rbyte = read(fd, p, left);
+		if (rbyte == -1)
+		{
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+			{
+				break;
+			}
+
+			return MSG_GET_FAILED;
+		}
+
+		p += rbyte;
+		left -= rbyte;
+
+		if (left == 0)
+		{
+			if (status->phase == MSG_PHASE_GET_HEAD)
+			{
+				message_parse_head(msg);
+				
+				status->position = p;
+				status->left = msg->length;
+
+				status->phase = MSG_PHASE_GET_BODY;
+
+				//we assgin the position and left again
+				//the p already eq the position
+				left = status->left;
+			}
+			else
+			{
+				message_parse_body(msg);
+
+				return MSG_GET_FINISH;
+			}
+		}
+	}
+
+	status->position = p;
+	status->left = left;
+
+	return MSG_GET_AGAIN;
 }
