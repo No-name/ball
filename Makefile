@@ -1,4 +1,4 @@
-CFLAG = -g
+CFLAG = -g -Wall
 .PHONY:all
 
 all:client server

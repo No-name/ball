@@ -12,6 +12,8 @@
 #include <signal.h>
 #include <time.h>
 
+#include <assert.h>
+
 #include "list.h"
 
 #define SERVER_ADDR "127.0.0.1"
@@ -26,6 +28,7 @@
 #define TIME_IDEL_MAX 20
 
 #define MAX_MESSAGE_PACKET_LEN 1024
+#define MAX_ACCOUNT_NAME_LEN 64
 
 #define MSG_HEAD_LENGTH 12
 
@@ -36,6 +39,10 @@ enum {
 	MSG_GET_FAILED,
 	MSG_GET_AGAIN,
 	MSG_GET_FINISH,
+
+	MSG_SEND_FAILED,
+	MSG_SEND_AGAIN,
+	MSG_SEND_FINISH,
 };
 
 enum {
@@ -67,8 +74,10 @@ struct message_packet {
 		struct {
 			int from_len;
 			int to_len;
-			char * msg_from;
-			char * msg_to;
+			int msg_len;
+			char * from;
+			char * to;
+			char * msg;
 		} chart_info;
 	};
 
@@ -79,6 +88,14 @@ struct msg_status {
 	char * position;
 	int phase;
 	int left;
+};
+
+struct account_info {
+	struct hlist_node hnext;
+	struct peer_info * conn;
+
+	int name_len;
+	char name[MAX_ACCOUNT_NAME_LEN];
 };
 
 struct peer_info {
@@ -96,7 +113,10 @@ struct peer_info {
 	int (*put_msg)(struct msg_status * status, int skfd);
 };
 
-extern int get_message(struct message_packet * msg, struct msg_status * status, int fd);
+int get_message(struct message_packet * msg, struct msg_status * status, int fd);
+int put_message(struct msg_status * status, int fd);
+void send_message(struct peer_info * peer);
+void init_account_info_hash_table();
 
 struct peer_info * peer_info_pool[MAX_PEER_INFO_COUNT];
 
@@ -111,6 +131,8 @@ void init_routine()
 	check_timeout = 0;
 
 	INIT_LIST_HEAD(&timeout_list);
+
+	init_account_info_hash_table();
 }
 
 void clear_outtime_peer()
@@ -160,9 +182,90 @@ struct message_packet * initial_new_input_msg(struct msg_status * status)
 	return packet;
 }
 
+int account_name_hash(char * name, int len)
+{
+	return 0;
+}
+
+struct hlist_head * gpstAccountInfoHashTable;
+#define ACCOUNT_INFO_HASH_SLOT_MAX 1000
+
+void init_account_info_hash_table()
+{
+	int i;
+	struct hlist_head * htable;
+
+	htable = malloc(sizeof(struct hlist_head) * ACCOUNT_INFO_HASH_SLOT_MAX);
+
+	for (i = 0; i < ACCOUNT_INFO_HASH_SLOT_MAX; ++i)
+	{
+		INIT_HLIST_HEAD(htable + i);
+	}
+
+	gpstAccountInfoHashTable = htable;
+}
+
+void add_account_info_to_db(struct account_info * account)
+{
+	struct hlist_head * hslot;
+
+	int hash = account_name_hash(account->name, account->name_len);
+
+	hslot = gpstAccountInfoHashTable + hash;
+
+	hlist_add_head(&account->hnext, hslot);
+}
+
+struct account_info * get_account_from_db(char * name, int len)
+{
+	struct hlist_head * hslot;
+	struct hlist_node * hnode;
+	struct account_info * account;
+
+	int hash = account_name_hash(name, len);
+
+	hslot = gpstAccountInfoHashTable + hash;
+
+	hlist_for_each_entry(account, hnode, hslot, hnext)
+	{
+		if (!strncmp(account->name, name, account->name_len < len ? account->name_len : len))
+		{
+			return account;
+		}
+	}
+
+	return NULL;
+}
+
 void process_message(struct message_packet * msg, struct peer_info * peer)
 {
+	struct account_info * account;
 
+	switch (msg->type)
+	{
+		case MSG_TYPE_LOGIN:
+			account = malloc(sizeof(struct account_info));
+			memcpy(account->name, msg->login_info.name, msg->login_info.name_len);
+			account->name_len = msg->login_info.name_len;
+			account->conn = peer;
+
+			add_account_info_to_db(account);
+
+			free(msg);
+			break;
+		case MSG_TYPE_CHART:
+			account = get_account_from_db(msg->chart_info.to, msg->chart_info.to_len);
+
+			list_add_tail(&msg->next, &account->conn->msg_output_list);
+
+			send_message(account->conn);
+
+			break;
+		default:
+			assert(0 && "message type invalid");
+			free(msg);
+			return;
+	}
 }
 
 void destroy_peer_info(struct peer_info * peer)
@@ -181,13 +284,11 @@ int main()
 	struct peer_info * peer;
 	struct sockaddr_in client_addr;
 	struct sockaddr_in server_addr;
-	char msg_buffer[MAX_MSG_BUFFER_LEN];
-	char client_addr_buf[MAX_CLIENT_ADDR_BUF];
 	int client_fd;
 	int listen_sock;
 	int len;
 	int flag;
-	int i, ret, rbyte, wbyte;
+	int i, ret;
 	time_t now;
 
 	struct epoll_event ep_responds[MAX_EPOLL_EVENT];
@@ -272,6 +373,7 @@ int main()
 					peer->msg_input = initial_new_input_msg(&peer->input_status);
 					INIT_LIST_HEAD(&peer->msg_output_list);
 					peer->get_msg = get_message;
+					peer->put_msg = put_message;
 
 					len = sizeof(struct sockaddr);
 					client_fd = accept(listen_sock, (struct sockaddr *)&client_addr, &len);
@@ -372,11 +474,39 @@ void message_parse_body(struct message_packet * msg)
 {
 	char * p = msg->content;
 
+	p += MSG_HEAD_LENGTH;
+
 	switch (msg->type)
 	{
 		case MSG_TYPE_LOGIN:
+			msg->login_info.name_len = *p;
+			p += 1;
+
+			msg->login_info.name = p;
+			p += msg->login_info.name_len;
+
+			msg->login_info.passwd_len = *p;
+			p += 1;
+
+			msg->login_info.passwd = p;
 			break;
 		case MSG_TYPE_CHART:
+			msg->chart_info.from_len = *p;
+			p += 1;
+
+			msg->chart_info.from = p;
+			p += msg->chart_info.from_len;
+
+			msg->chart_info.to_len = *p;
+			p += 1;
+
+			msg->chart_info.to = p;
+			p += msg->chart_info.to_len;
+
+			msg->chart_info.msg_len = ntohs(*(short *)p);
+			p += 2;
+
+			msg->chart_info.msg = p;
 			break;
 		default:
 			break;
@@ -437,3 +567,76 @@ int get_message(struct message_packet * msg, struct msg_status * status, int fd)
 
 	return MSG_GET_AGAIN;
 }
+
+int put_message(struct msg_status * status, int fd)
+{
+	int wbyte;
+	int left = status->left;
+	char * p = status->position;
+
+	while (1)
+	{
+		wbyte = write(fd, p, left);
+		if (wbyte == -1)
+		{
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+			{
+				status->left = left;
+				status->position = p;
+
+				return MSG_SEND_AGAIN;
+			}
+			
+			return MSG_SEND_FAILED;
+		}
+
+		p += wbyte;
+		left -= wbyte;
+
+		if (left == 0)
+		{
+			status->left = 0;
+			status->position = NULL;
+
+			return MSG_SEND_FINISH;
+		}
+	}
+}
+
+void send_message(struct peer_info * peer)
+{
+	int ret = MSG_SEND_FINISH;
+	struct message_packet * msg;
+
+	msg = list_first_entry(&peer->msg_output_list, struct message_packet, next);
+
+	while (1)
+	{
+		if (peer->output_status.left)
+		{
+			ret = peer->put_msg(&peer->output_status, peer->skfd);
+			if (ret == MSG_SEND_FINISH)
+			{
+				list_del(&msg->next);
+				free(msg);
+			}
+			else if (ret == MSG_SEND_AGAIN)
+			{
+				return;
+			}
+			else
+			{
+				//there the peer is gone, just remove the peer
+				return;
+			}
+		}
+
+		msg = list_first_entry(&peer->msg_output_list, struct message_packet, next);
+		if (msg == NULL)
+			break;
+
+		peer->output_status.position = msg->content;
+		peer->output_status.left = msg->length + MSG_HEAD_LENGTH;
+	}
+}
+
