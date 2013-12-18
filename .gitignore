@@ -16,3 +16,7 @@
 *.exe
 *.out
 *.app
+
+#target file
+server
+client
