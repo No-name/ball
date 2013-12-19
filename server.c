@@ -545,7 +545,7 @@ int get_message(struct message_packet * msg, struct msg_status * status, int fd)
 				message_parse_head(msg);
 				
 				status->position = p;
-				status->left = msg->length;
+				status->left = msg->length - MSG_HEAD_LENGTH;
 
 				status->phase = MSG_PHASE_GET_BODY;
 
@@ -636,7 +636,7 @@ void send_message(struct peer_info * peer)
 			break;
 
 		peer->output_status.position = msg->content;
-		peer->output_status.left = msg->length + MSG_HEAD_LENGTH;
+		peer->output_status.left = msg->length;
 	}
 }
 
