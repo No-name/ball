@@ -96,6 +96,23 @@ void present_message(struct message_packet * msg)
 			*n = t;
 
 			break;
+		case MSG_TYPE_LOGIN:
+			p = msg->content + MSG_HEAD_LENGTH;
+
+			p += 1;
+			n = p + msg->login_info.name_len;
+			t = *n;
+			*n = 0;
+			printf("Login Name: %s\n", p);
+			*n = t;
+
+			p = n + 1;
+			n = p + msg->login_info.passwd_len;
+			t = *n;
+			*n = 0;
+			printf("Passwd: %s\n", p);
+			*n = t;
+			break;
 		default:
 			assert(0 && "message type invalid");
 			return;
@@ -173,8 +190,42 @@ void package_message(struct message_packet * msg)
 	return;
 }
 
+static int flag_gen_msg;
+
+void sig_hand_alarm(int sig)
+{
+	flag_gen_msg = 1;
+}
+
+struct message_packet * generate_chart_msg()
+{
+	struct message_packet * msg;
+	char msg_from[MAX_ACCOUNT_NAME_LEN];
+	char msg_to[MAX_ACCOUNT_NAME_LEN];
+	char msg_content[MAX_MSG_CONTENT_LEN];
+
+	msg = malloc(sizeof(struct message_packet));
+	msg->type = MSG_TYPE_CHART;
+	msg->version = 0x01;
+
+	msg->chart_info.from_len = strlen(msg_from);
+	msg->chart_info.from = msg_from;
+
+	msg->chart_info.to_len = strlen(msg_to);
+	msg->chart_info.to = msg_to;
+
+	msg->chart_info.msg_len = strlen(msg_content);
+	msg->chart_info.msg = msg_content;
+
+	package_message(msg);
+
+	return msg;
+}
+
 int main(int ac, char ** av)
 {
+	sigset_t sig_mask, sig_orig;
+	struct itimerval timeval;
 	struct epoll_event ep_responds[MAX_CLIENT_EPOLL_EVENT];
 	struct epoll_event ep_inject;
 	struct sockaddr_in server_addr;
@@ -187,6 +238,10 @@ int main(int ac, char ** av)
 		printf("Usage: %s username\n", av[0]);
 		exit(0);
 	}
+
+	signal(SIGALRM, sig_hand_alarm);
+
+	sigaddset(&sig_mask, SIGALRM);
 
 	epfd = epoll_create(1);
 
@@ -235,11 +290,30 @@ int main(int ac, char ** av)
 	package_message(msg);
 
 	list_add_tail(&msg->next, &client_endpoint.output_queue.msg_list);
-
 	send_message(&client_endpoint.output_queue, client_endpoint.skfd);
+
+	timerval.it_interval.tv_sec = 1;
+	timerval.it_interval.tv_usec = 0;
+	timerval.it_value = timerval.it_interval;
+
+	setitimer(ITIMER_REAL, &timerval, NULL);
 
 	while (1)
 	{
+		if (flag_gen_msg)
+		{
+			//this is just from test to generate message
+			flag_gen_msg = 0;
+
+			sigprocmask(SIG_BLOCK, &sig_mask, &sig_orig);
+
+			msg = generate_chart_msg();
+			list_add_tail(&msg->next, &client_endpoint.output_queue.msg_list);
+			send_message(&client_endpoint.output_queue, client_endpoint.skfd);
+
+			sigprocmask(SIG_SETMASK, &sig_orig, NULL);
+		}
+
 		ret = epoll_wait(epfd, ep_responds, MAX_CLIENT_EPOLL_EVENT, -1);
 		if (ret == -1)
 		{
@@ -251,6 +325,8 @@ int main(int ac, char ** av)
 
 		if (ret == 0)
 			continue;
+
+		sigprockmask(SIG_BLOCK, &sig_mask, &sig_orig);
 
 		for (i = 0; i < ret; ++i)
 		{
@@ -290,19 +366,9 @@ int main(int ac, char ** av)
 
 			free(msg);
 		}
+
+		sigprocmask(SIG_SETMASK, &sig_orig, NULL);
 	}
 
-
-	for (i = 1; i < 100; ++i)
-	{
-		sleep(1);
-		sprintf(msg_buffer, "[%d] send %d msgs to server", pid, i);
-
-		write(client_fd, msg_buffer, strlen(msg_buffer));
-
-		rbyte = read(client_fd, respond_buffer, MAX_MSG_BUFFER_LEN);
-		respond_buffer[rbyte] = '\0';
-
-		fprintf(stdout, "%s\n", respond_buffer);
-	}
+	return 0;
 }
