@@ -3,16 +3,24 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <arpa/inet.h>
 #include <sys/types.h>
+#include <sys/epoll.h>
 #include <sys/socket.h>
+#include <sys/time.h>
+#include <signal.h>
+#include <time.h>
+
+#include "list.h"
+#include "ball.h"
 
 #define SERVER_IP "127.0.0.1"
 #define SERVER_PORT 25678
 
-#define PASSWD_DEFAULT "123456"
+#define MAX_CLIENT_EPOLL_EVENT 10
 
-#define MAX_MSG_BUFFER_LEN 100
+#define PASSWD_DEFAULT "123456"
 
 struct message_send_queue {
 	struct list_head msg_list;
@@ -65,131 +73,6 @@ int send_message(struct message_send_queue * queue, int skfd)
 	return MSG_SEND_FINISH;
 }
 
-void present_message(struct message_packet * msg)
-{
-	char * p, * n, t;
-
-	switch (msg->type)
-	{
-		case MSG_TYPE_CHART:
-			p = msg->content + MSG_HEAD_LENGTH;
-
-			p += 1;
-			n = p + msg->chart_info.from_len;
-			t = *n;
-			*n = 0;
-			printf("From: %s\n", p);
-			*n = t;
-
-			p = n + 1;
-			n = p + msg->chart_info.to_len;
-			t = *n;
-			*n = 0;
-			printf("To: %s\n", p);
-			*n = t;
-
-			p = n + 2;
-			n = p + msg->chart_info.msg_len;
-			t = *n;
-			*n = 0;
-			printf("Content:\n\t%s\n", p);
-			*n = t;
-
-			break;
-		case MSG_TYPE_LOGIN:
-			p = msg->content + MSG_HEAD_LENGTH;
-
-			p += 1;
-			n = p + msg->login_info.name_len;
-			t = *n;
-			*n = 0;
-			printf("Login Name: %s\n", p);
-			*n = t;
-
-			p = n + 1;
-			n = p + msg->login_info.passwd_len;
-			t = *n;
-			*n = 0;
-			printf("Passwd: %s\n", p);
-			*n = t;
-			break;
-		default:
-			assert(0 && "message type invalid");
-			return;
-	}
-}
-
-void package_message(struct message_packet * msg)
-{
-	char * p = msg->content;
-
-	*(int *)p = htonl(msg->version);
-	p += 4;
-
-	*(int *)p = htonl(msg->type);
-	p += 4;
-
-	//reserve the head length
-	*(int *)p = 0;
-	p += 4;
-
-	switch (msg->type)
-	{
-		case MSG_TYPE_LOGIN:
-			len = msg->login_info.name_len;
-			*p = len;
-			p += 1;
-
-			memcpy(p, msg->login_info.name, len);
-			p += len;
-
-			len = msg->login_info.passwd_len;
-			*p = len;
-			p += 1;
-
-			memcpy(p, msg->login_info.passwd, len);
-			p += len;
-			break;
-
-		case MSG_TYPE_CHART:
-			len = msg->chart_info.from_len;
-			*p = len;
-			p += 1;
-
-			memcpy(p, msg->chart_info.from, len);
-			p += len;
-
-			len = msg->chart_info.to_len;
-			*p = len;
-			p += 1;
-
-			memcpy(p, msg->chart_info.to, len);
-			p += len;
-
-			len = msg->chart_info.msg_len;
-
-			*(unsigned short *)p = htons(len);
-			p += 2;
-
-			memcpy(p, msg->chart_info.msg, len);
-			p += len;
-			break;
-
-		default:
-			assert(0 && "message type invalid");
-			msg->length = 0;
-			return;
-	}
-
-	len = p - msg->content;
-
-	((int *)msg->content)[2] = htonl(len);
-
-	msg->length = len;
-
-	return;
-}
-
 static int flag_gen_msg;
 
 void sig_hand_alarm(int sig)
@@ -197,12 +80,29 @@ void sig_hand_alarm(int sig)
 	flag_gen_msg = 1;
 }
 
-struct message_packet * generate_chart_msg()
+//use for monilate the chart message generate
+struct message_packet * generate_chart_msg(char * msg_from)
 {
+	static char * msg_reciver[] = {
+		"Brush",
+		"Stevens",
+		"Cooke",
+		"Riched",
+	};
+
+	static int msg_index;
+
+	int i;
 	struct message_packet * msg;
-	char msg_from[MAX_ACCOUNT_NAME_LEN];
 	char msg_to[MAX_ACCOUNT_NAME_LEN];
 	char msg_content[MAX_MSG_CONTENT_LEN];
+
+	i = msg_index % 4;
+	if (!strcmp(msg_from, msg_reciver[i]))
+		i = (i + 1) % 4;
+
+	sprintf(msg_to, "%s", msg_reciver[i]);
+	sprintf(msg_content, "[MSG %d-%d] message hello", getpid(), msg_index);
 
 	msg = malloc(sizeof(struct message_packet));
 	msg->type = MSG_TYPE_CHART;
@@ -219,19 +119,24 @@ struct message_packet * generate_chart_msg()
 
 	package_message(msg);
 
+	msg_index++;
+
 	return msg;
 }
 
 int main(int ac, char ** av)
 {
 	sigset_t sig_mask, sig_orig;
-	struct itimerval timeval;
+	struct itimerval timerval;
 	struct epoll_event ep_responds[MAX_CLIENT_EPOLL_EVENT];
 	struct epoll_event ep_inject;
 	struct sockaddr_in server_addr;
 	struct message_endpoint client_endpoint;
 	struct message_packet * msg;
-	int client_fd;
+	int client_fd, epfd;
+	int ret;
+	int flag;
+	int i;
 
 	if (ac != 2)
 	{
@@ -250,7 +155,7 @@ int main(int ac, char ** av)
 	client_endpoint.output_queue.put_msg = put_message;
 
 	INIT_LIST_HEAD(&client_endpoint.msg_input_list);
-	client_endpoint.msg_input = initial_new_input_msg(&client_endpoint.msg_input);
+	client_endpoint.msg_input = initial_new_input_msg(&client_endpoint.input_status);
 	client_endpoint.get_msg = get_message;
 
 
@@ -307,7 +212,7 @@ int main(int ac, char ** av)
 
 			sigprocmask(SIG_BLOCK, &sig_mask, &sig_orig);
 
-			msg = generate_chart_msg();
+			msg = generate_chart_msg(av[1]);
 			list_add_tail(&msg->next, &client_endpoint.output_queue.msg_list);
 			send_message(&client_endpoint.output_queue, client_endpoint.skfd);
 
@@ -326,7 +231,7 @@ int main(int ac, char ** av)
 		if (ret == 0)
 			continue;
 
-		sigprockmask(SIG_BLOCK, &sig_mask, &sig_orig);
+		sigprocmask(SIG_BLOCK, &sig_mask, &sig_orig);
 
 		for (i = 0; i < ret; ++i)
 		{
@@ -334,7 +239,7 @@ int main(int ac, char ** av)
 			{
 				if (ep_responds[i].events & EPOLLIN)
 				{
-					ret = client_endpoint.get_msg(client_endpoint.msg_input, &client_endpoint->input_status, client_endpoint->skfd);
+					ret = client_endpoint.get_msg(client_endpoint.msg_input, &client_endpoint.input_status, client_endpoint.skfd);
 					if (ret == MSG_GET_FAILED)
 					{
 						//here the skfd read failed, maybe we need a reconnection to the 
@@ -342,8 +247,8 @@ int main(int ac, char ** av)
 					}
 					else if (ret == MSG_GET_FINISH)
 					{
-						list_add_tail(&client_endpoint.msg_input.next, &client_endpoint.msg_input_list);
-						client_endpoint->msg_input = initial_new_input_msg(&client_endpoint->input_status);
+						list_add_tail(&client_endpoint.msg_input->next, &client_endpoint.msg_input_list);
+						client_endpoint.msg_input = initial_new_input_msg(&client_endpoint.input_status);
 					}
 				}
 
@@ -359,7 +264,7 @@ int main(int ac, char ** av)
 			}
 		}
 
-		while ((msg = list_first_entry(&client_endpoint->msg_input_list, struct message_packet, next)))
+		while ((msg = list_first_entry(&client_endpoint.msg_input_list, struct message_packet, next)))
 		{
 			list_del(&msg->next);
 			present_message(msg);

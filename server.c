@@ -15,80 +15,20 @@
 #include <assert.h>
 
 #include "list.h"
+#include "ball.h"
 
 #define SERVER_ADDR "127.0.0.1"
 #define SERVER_PORT 25678
 
 #define MAX_EPOLL_EVENT 100
-#define MAX_MSG_BUFFER_LEN 100
 #define MAX_CLIENT_ADDR_BUF 100
 
 #define MAX_PEER_INFO_COUNT 300
 
 #define TIME_IDEL_MAX 20
 
-#define MAX_MESSAGE_PACKET_LEN 1024
-#define MAX_ACCOUNT_NAME_LEN 64
-
-#define MSG_HEAD_LENGTH 12
-
 
 int check_timeout;
-
-enum {
-	MSG_GET_FAILED,
-	MSG_GET_AGAIN,
-	MSG_GET_FINISH,
-
-	MSG_SEND_FAILED,
-	MSG_SEND_AGAIN,
-	MSG_SEND_FINISH,
-};
-
-enum {
-	MSG_PHASE_GET_HEAD,
-	MSG_PHASE_GET_BODY,
-};
-
-enum {
-	MSG_TYPE_LOGIN,
-	MSG_TYPE_CHART,
-};
-
-struct message_packet {
-	struct list_head next;
-	int msg_is_ok;
-
-	int type;
-	int length;
-	int version;
-	
-	union {
-		struct {
-			int name_len;
-			int passwd_len;
-			char * name;
-			char * passwd;
-		} login_info;
-
-		struct {
-			int from_len;
-			int to_len;
-			int msg_len;
-			char * from;
-			char * to;
-			char * msg;
-		} chart_info;
-	};
-
-	char content[MAX_MESSAGE_PACKET_LEN];
-};
-
-struct msg_status {
-	char * position;
-	int phase;
-	int left;
-};
 
 struct account_info {
 	struct hlist_node hnext;
@@ -169,17 +109,6 @@ void sig_hand_alarm(int sig)
 {
 	printf("I am timeout\n");
 	check_timeout = 1;
-}
-
-struct message_packet * initial_new_input_msg(struct msg_status * status)
-{
-	struct message_packet * packet;
-	packet = malloc(sizeof(struct message_packet));
-	status->position = packet->content;
-	status->left = MSG_HEAD_LENGTH;
-	status->phase = MSG_PHASE_GET_HEAD;
-
-	return packet;
 }
 
 int account_name_hash(char * name, int len)
@@ -376,7 +305,7 @@ int main()
 					peer->put_msg = put_message;
 
 					len = sizeof(struct sockaddr);
-					client_fd = accept(listen_sock, (struct sockaddr *)&client_addr, &len);
+					client_fd = accept(listen_sock, (struct sockaddr *)&client_addr, (socklen_t *)&len);
 					if (client_fd == -1)
 					{
 						if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -454,152 +383,6 @@ int main()
 		}
 
 		sigprocmask(SIG_SETMASK, &sig_orig, NULL);
-	}
-}
-
-void message_parse_head(struct message_packet * msg)
-{
-	char * p = msg->content;
-
-	msg->version = ntohl(*(int *)p);
-	p += 4;
-
-	msg->type = ntohl(*(int *)p);
-	p += 4;
-
-	msg->length = ntohl(*(int *)p);
-}
-
-void message_parse_body(struct message_packet * msg)
-{
-	char * p = msg->content;
-
-	p += MSG_HEAD_LENGTH;
-
-	switch (msg->type)
-	{
-		case MSG_TYPE_LOGIN:
-			msg->login_info.name_len = *p;
-			p += 1;
-
-			msg->login_info.name = p;
-			p += msg->login_info.name_len;
-
-			msg->login_info.passwd_len = *p;
-			p += 1;
-
-			msg->login_info.passwd = p;
-			break;
-		case MSG_TYPE_CHART:
-			msg->chart_info.from_len = *p;
-			p += 1;
-
-			msg->chart_info.from = p;
-			p += msg->chart_info.from_len;
-
-			msg->chart_info.to_len = *p;
-			p += 1;
-
-			msg->chart_info.to = p;
-			p += msg->chart_info.to_len;
-
-			msg->chart_info.msg_len = ntohs(*(short *)p);
-			p += 2;
-
-			msg->chart_info.msg = p;
-			break;
-		default:
-			break;
-	}
-}
-
-int get_message(struct message_packet * msg, struct msg_status * status, int fd)
-{
-	int rbyte;
-	char * p;
-	int left;
-
-	p = status->position;
-	left = status->left;
-
-	while (1)
-	{
-		rbyte = read(fd, p, left);
-		if (rbyte == -1)
-		{
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-			{
-				break;
-			}
-
-			return MSG_GET_FAILED;
-		}
-
-		p += rbyte;
-		left -= rbyte;
-
-		if (left == 0)
-		{
-			if (status->phase == MSG_PHASE_GET_HEAD)
-			{
-				message_parse_head(msg);
-				
-				status->position = p;
-				status->left = msg->length - MSG_HEAD_LENGTH;
-
-				status->phase = MSG_PHASE_GET_BODY;
-
-				//we assgin the position and left again
-				//the p already eq the position
-				left = status->left;
-			}
-			else
-			{
-				message_parse_body(msg);
-
-				return MSG_GET_FINISH;
-			}
-		}
-	}
-
-	status->position = p;
-	status->left = left;
-
-	return MSG_GET_AGAIN;
-}
-
-int put_message(struct msg_status * status, int fd)
-{
-	int wbyte;
-	int left = status->left;
-	char * p = status->position;
-
-	while (1)
-	{
-		wbyte = write(fd, p, left);
-		if (wbyte == -1)
-		{
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-			{
-				status->left = left;
-				status->position = p;
-
-				return MSG_SEND_AGAIN;
-			}
-			
-			return MSG_SEND_FAILED;
-		}
-
-		p += wbyte;
-		left -= wbyte;
-
-		if (left == 0)
-		{
-			status->left = 0;
-			status->position = NULL;
-
-			return MSG_SEND_FINISH;
-		}
 	}
 }
 
