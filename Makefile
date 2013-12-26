@@ -7,10 +7,10 @@ CFLAG = -g -Wall
 all:client server
 
 client:client.o ball.o
-	gcc -o $@ $(CFLAG) $?
+	gcc -o $@ $(CFLAG) $^
 
 server:server.o ball.o
-	gcc -o $@ $(CFLAG) $?
+	gcc -o $@ $(CFLAG) $^
 
 .c.o:
 	gcc -c $< $(CFLAG) -o $@ 

@@ -132,6 +132,8 @@ void init_account_info_hash_table()
 	}
 
 	gpstAccountInfoHashTable = htable;
+
+	assert(gpstAccountInfoHashTable && "Account hash table alloc failed\n");
 }
 
 void add_account_info_to_db(struct account_info * account)
@@ -170,6 +172,8 @@ void process_message(struct message_packet * msg, struct peer_info * peer)
 {
 	struct account_info * account;
 
+	present_message(msg);
+
 	switch (msg->type)
 	{
 		case MSG_TYPE_LOGIN:
@@ -184,10 +188,15 @@ void process_message(struct message_packet * msg, struct peer_info * peer)
 			break;
 		case MSG_TYPE_CHART:
 			account = get_account_from_db(msg->chart_info.to, msg->chart_info.to_len);
-
-			list_add_tail(&msg->next, &account->conn->msg_output_list);
-
-			send_message(account->conn);
+			if (!account)
+			{
+				free(msg);
+			}
+			else
+			{
+				list_add_tail(&msg->next, &account->conn->msg_output_list);
+				send_message(account->conn);
+			}
 
 			break;
 		default:
@@ -217,7 +226,7 @@ int main()
 	int listen_sock;
 	int len;
 	int flag;
-	int i, ret;
+	int i, ret, total;
 	time_t now;
 
 	struct epoll_event ep_responds[MAX_EPOLL_EVENT];
@@ -225,13 +234,17 @@ int main()
 
 	signal(SIGALRM, sig_hand_alarm);
 
-	init_routine();
-
+	sigemptyset(&sig_mask);
 	sigaddset(&sig_mask, SIGALRM);
+
+	init_routine();
 
 	epfd = epoll_create(100);
 
 	listen_sock = socket(AF_INET, SOCK_STREAM, 0);
+	flag = 1;
+	setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag));
+
 	flag = fcntl(listen_sock, F_GETFL);
 	flag |= O_NONBLOCK;
 	fcntl(listen_sock, F_SETFL, flag);
@@ -255,7 +268,6 @@ int main()
 
 	timerval.it_interval.tv_sec = 1;
 	timerval.it_interval.tv_usec = 0;
-
 	timerval.it_value = timerval.it_interval;
 
 	setitimer(ITIMER_REAL, &timerval, NULL);
@@ -287,7 +299,7 @@ int main()
 
 		sigprocmask(SIG_BLOCK, &sig_mask, &sig_orig);
 
-		for (i = 0; i < ret; ++i)
+		for (i = 0, total = ret; i < total; ++i)
 		{
 			if (ep_responds[i].data.fd == listen_sock)
 			{
@@ -352,12 +364,15 @@ int main()
 					ret = peer->get_msg(peer->msg_input, &peer->input_status, peer->skfd);
 					if (ret == MSG_GET_FAILED)
 					{
+						printf("Get message failed\n");
 						epoll_ctl(epfd, EPOLL_CTL_DEL, client_fd, NULL);
 						list_del(&peer->next);
 						close(peer->skfd);
 						peer_info_pool[client_fd] = NULL;
 
 						destroy_peer_info(peer);
+
+						printf("Successfully process the failed state\n");
 					}
 					else
 					{
@@ -414,12 +429,12 @@ void send_message(struct peer_info * peer)
 			}
 		}
 
-		msg = list_first_entry(&peer->msg_output_list, struct message_packet, next);
-		if (msg == NULL)
+		if (list_empty(&peer->msg_output_list))
 			break;
+
+		msg = list_first_entry(&peer->msg_output_list, struct message_packet, next);
 
 		peer->output_status.position = msg->content;
 		peer->output_status.left = msg->length;
 	}
 }
-

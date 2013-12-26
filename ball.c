@@ -249,6 +249,10 @@ int get_message(struct message_packet * msg, struct msg_status * status, int fd)
 
 			return MSG_GET_FAILED;
 		}
+		else if (rbyte == 0)
+		{
+			return MSG_GET_FAILED;
+		}
 
 		p += rbyte;
 		left -= rbyte;

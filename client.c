@@ -48,6 +48,7 @@ int send_message(struct message_send_queue * queue, int skfd)
 
 	while (1)
 	{
+		printf("Hello\n");
 		if (queue->status.left)
 		{
 			ret = queue->put_msg(&queue->status, skfd);
@@ -62,9 +63,10 @@ int send_message(struct message_send_queue * queue, int skfd)
 			}
 		}
 
-		msg = list_first_entry(&queue->msg_list, struct message_packet, next);
-		if (msg == NULL)
+		if (list_empty(&queue->msg_list))
 			break;
+
+		msg = list_first_entry(&queue->msg_list, struct message_packet, next);
 
 		queue->status.position = msg->content;
 		queue->status.left = msg->length;
@@ -78,6 +80,8 @@ static int flag_gen_msg;
 void sig_hand_alarm(int sig)
 {
 	flag_gen_msg = 1;
+
+	printf("Timeout need generate msg\n");
 }
 
 //use for monilate the chart message generate
@@ -146,6 +150,7 @@ int main(int ac, char ** av)
 
 	signal(SIGALRM, sig_hand_alarm);
 
+	sigemptyset(&sig_mask);
 	sigaddset(&sig_mask, SIGALRM);
 
 	epfd = epoll_create(1);
@@ -161,14 +166,6 @@ int main(int ac, char ** av)
 
 	client_fd = socket(AF_INET, SOCK_STREAM, 0);
 
-	flag = fcntl(client_fd, F_GETFL);
-	flag |= O_NONBLOCK;
-	fcntl(client_fd, F_SETFL, flag);
-
-	ep_inject.events = EPOLLIN | EPOLLOUT | EPOLLET;
-	ep_inject.data.fd = client_fd;
-	epoll_ctl(epfd, EPOLL_CTL_ADD, client_fd, &ep_inject);
-
 	server_addr.sin_family = AF_INET;
 	server_addr.sin_port = htons(SERVER_PORT);
 	inet_pton(AF_INET, SERVER_IP, &server_addr.sin_addr);
@@ -179,6 +176,14 @@ int main(int ac, char ** av)
 		fprintf(stderr, "connect failed %s\n", strerror(errno));
 		exit(0);
 	}
+
+	flag = fcntl(client_fd, F_GETFL);
+	flag |= O_NONBLOCK;
+	fcntl(client_fd, F_SETFL, flag);
+
+	ep_inject.events = EPOLLIN | EPOLLOUT | EPOLLET;
+	ep_inject.data.fd = client_fd;
+	epoll_ctl(epfd, EPOLL_CTL_ADD, client_fd, &ep_inject);
 
 	client_endpoint.skfd = client_fd;
 
@@ -197,6 +202,8 @@ int main(int ac, char ** av)
 	list_add_tail(&msg->next, &client_endpoint.output_queue.msg_list);
 	send_message(&client_endpoint.output_queue, client_endpoint.skfd);
 
+	printf("We do here\n");
+
 	timerval.it_interval.tv_sec = 1;
 	timerval.it_interval.tv_usec = 0;
 	timerval.it_value = timerval.it_interval;
@@ -212,16 +219,23 @@ int main(int ac, char ** av)
 
 			sigprocmask(SIG_BLOCK, &sig_mask, &sig_orig);
 
+			printf("Send message start\n");
+
 			msg = generate_chart_msg(av[1]);
 			list_add_tail(&msg->next, &client_endpoint.output_queue.msg_list);
 			send_message(&client_endpoint.output_queue, client_endpoint.skfd);
 
+			printf("Send message finish\n");
+
 			sigprocmask(SIG_SETMASK, &sig_orig, NULL);
 		}
+
+		printf("Now we wait for some respond\n");
 
 		ret = epoll_wait(epfd, ep_responds, MAX_CLIENT_EPOLL_EVENT, -1);
 		if (ret == -1)
 		{
+			printf("epoll wait come to error");
 			if (errno == EINTR)
 				continue;
 			else
@@ -264,8 +278,9 @@ int main(int ac, char ** av)
 			}
 		}
 
-		while ((msg = list_first_entry(&client_endpoint.msg_input_list, struct message_packet, next)))
+		while (!list_empty(&client_endpoint.msg_input_list))
 		{
+			msg = list_first_entry(&client_endpoint.msg_input_list, struct message_packet, next);
 			list_del(&msg->next);
 			present_message(msg);
 
