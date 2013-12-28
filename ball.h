@@ -62,10 +62,17 @@ struct msg_status {
 	int left;
 };
 
+struct message_send_queue {
+	struct list_head msg_list;
+	struct msg_status status;
+	int (*put_msg)(struct msg_status * status, int skfd);
+};
+
 extern void package_message(struct message_packet * msg);
 extern int put_message(struct msg_status * status, int fd);
 extern int get_message(struct message_packet * msg, struct msg_status * status, int fd);
 
+extern int send_message(struct message_send_queue * queue, int skfd);
 extern struct message_packet * initial_new_input_msg(struct msg_status * status);
 extern void message_parse_head(struct message_packet * msg);
 extern void present_message(struct message_packet * msg);

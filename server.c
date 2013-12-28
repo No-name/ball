@@ -45,17 +45,21 @@ struct peer_info {
 	char addr_str[MAX_CLIENT_ADDR_BUF];
 	struct sockaddr_in addr;
 
+	struct message_send_queue output_queue;
+
 	struct message_packet * msg_input;
-	struct list_head msg_output_list;
 	struct msg_status input_status;
+
+	//obsolete
+	struct list_head msg_output_list;
 	struct msg_status output_status;
-	int (*get_msg)(struct message_packet * msg, struct msg_status * status, int skfd);
 	int (*put_msg)(struct msg_status * status, int skfd);
+
+	int (*get_msg)(struct message_packet * msg, struct msg_status * status, int skfd);
 };
 
 int get_message(struct message_packet * msg, struct msg_status * status, int fd);
 int put_message(struct msg_status * status, int fd);
-void send_message(struct peer_info * peer);
 void init_account_info_hash_table();
 
 struct peer_info * peer_info_pool[MAX_PEER_INFO_COUNT];
@@ -194,8 +198,8 @@ void process_message(struct message_packet * msg, struct peer_info * peer)
 			}
 			else
 			{
-				list_add_tail(&msg->next, &account->conn->msg_output_list);
-				send_message(account->conn);
+				list_add_tail(&msg->next, &account->conn->output_queue.msg_list);
+				send_message(&account->conn->output_queue, account->conn->skfd);
 			}
 
 			break;
@@ -312,9 +316,10 @@ int main()
 					memset(peer, 0, sizeof(struct peer_info));
 
 					peer->msg_input = initial_new_input_msg(&peer->input_status);
-					INIT_LIST_HEAD(&peer->msg_output_list);
 					peer->get_msg = get_message;
-					peer->put_msg = put_message;
+
+					INIT_LIST_HEAD(&peer->output_queue.msg_list);
+					peer->output_queue.put_msg = put_message;
 
 					len = sizeof(struct sockaddr);
 					client_fd = accept(listen_sock, (struct sockaddr *)&client_addr, (socklen_t *)&len);
@@ -393,6 +398,8 @@ int main()
 				if (ep_responds[i].events & EPOLLOUT)
 				{
 					printf("Client with POLLOUT event\n");
+
+					send_message(&peer->output_queue, peer->skfd);
 				}
 			}
 		}
@@ -401,6 +408,7 @@ int main()
 	}
 }
 
+#if 0
 void send_message(struct peer_info * peer)
 {
 	int ret = MSG_SEND_FINISH;
@@ -438,3 +446,4 @@ void send_message(struct peer_info * peer)
 		peer->output_status.left = msg->length;
 	}
 }
+#endif

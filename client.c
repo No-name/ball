@@ -22,12 +22,6 @@
 
 #define PASSWD_DEFAULT "123456"
 
-struct message_send_queue {
-	struct list_head msg_list;
-	struct msg_status status;
-	int (*put_msg)(struct msg_status * status, int skfd);
-};
-
 struct message_endpoint {
 	int skfd;
 
@@ -38,42 +32,6 @@ struct message_endpoint {
 	struct message_packet * msg_input;
 	int (*get_msg)(struct message_packet * msg, struct msg_status * status, int skfd);
 };
-
-int send_message(struct message_send_queue * queue, int skfd)
-{
-	int ret;
-	struct message_packet * msg;
-
-	msg = list_first_entry(&queue->msg_list, struct message_packet, next);
-
-	while (1)
-	{
-		printf("Hello\n");
-		if (queue->status.left)
-		{
-			ret = queue->put_msg(&queue->status, skfd);
-			if (ret == MSG_SEND_FINISH)
-			{
-				list_del(&msg->next);
-				free(msg);
-			}
-			else
-			{
-				return ret;
-			}
-		}
-
-		if (list_empty(&queue->msg_list))
-			break;
-
-		msg = list_first_entry(&queue->msg_list, struct message_packet, next);
-
-		queue->status.position = msg->content;
-		queue->status.left = msg->length;
-	}
-
-	return MSG_SEND_FINISH;
-}
 
 static int flag_gen_msg;
 
