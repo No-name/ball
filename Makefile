@@ -4,7 +4,10 @@ OBJ=$(SRC:%.c=%.o)
 CFLAG = -g -Wall
 .PHONY:all
 
-all:client server
+all:client server gui_client
+
+gui_client : gui_client.c ball.o
+	gcc -o $@ $(CFLAG) $^ `pkg-config --cflags --libs gtk+-3.0`
 
 client:client.o ball.o
 	gcc -o $@ $(CFLAG) $^
