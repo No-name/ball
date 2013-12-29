@@ -25,7 +25,7 @@
 
 #define MAX_PEER_INFO_COUNT 300
 
-#define TIME_IDEL_MAX 20
+#define TIME_IDEL_MAX 100000
 
 
 int check_timeout;

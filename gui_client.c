@@ -403,7 +403,6 @@ void ball_chart_panel_present_message(BallChartPanel * chart_panel, struct messa
 
 gboolean ball_chart_panel_update_comming_message(gpointer user_data)
 {
-	g_message("Process comming message");
 	struct message_packet * msg;
 
 	BallChartPanel * chart_panel = BALL_CHART_PANEL(user_data);
