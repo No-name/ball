@@ -164,9 +164,20 @@ gboolean ball_check_recive_message(gpointer user_data)
 	return TRUE;
 }
 
-int main(int ac, char ** av)
+#define BALL_TYPE_CHART_PANEL (ball_chart_panel_get_type())
+#define BALL_CHART_PANEL(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), BALL_TYPE_CHART_PANEL, BallChartPanel))
+#define BALL_IS_CHART_PANEL(obj) (G_TYPE_CHECK_INSTANCE_TYPE((obj), BALL_TYPE_CHART_PANEL))
+#define BALL_CHART_PANEL_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST((klass), BALL_TYPE_CHART_PANEL, BallChartPanelClass))
+#define BALL_IS_CHART_PANEL_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), BALL_TYPE_CHART_PANEL))
+#define BALL_CHART_PANEL_GET_CLASS(obj) (G_TYPE_INSTANCE_GET_CLASS((obj), BALL_TYPE_CHART_PANEL, BallChartPanelClass))
+
+typedef struct _BallChartPanel BallChartPanel;
+typedef struct _BallChartPanelClass BallChartPanelClass;
+
+struct _BallChartPanel
 {
-	GtkWidget * window;
+	GtkWindow parent;
+
 	GtkWidget * msg_recv, * msg_send;
 	GtkWidget * paned;
 	GtkTextBuffer * msg_recv_buffer, * msg_send_buffer;
@@ -176,58 +187,156 @@ int main(int ac, char ** av)
 	GtkWidget * msg_reciver_view;
 	GtkWidget * reciver_label, * recivers_combo_box;
 
-	gtk_init(&ac, &av);
+	char * my_name;
+	int my_name_len;
+};
 
-	window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+struct _BallChartPanelClass
+{
+	GtkWindowClass parent_class;
+};
+
+void ball_chart_panel_send_message(GtkWidget * button, BallChartPanel * chart_panel)
+{
+	struct message_packet * msg;
+
+	int msg_len;
+	GtkTextIter start, end;
+	gchar * message_content, * send_to;
+
+	send_to = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(chart_panel->recivers_combo_box));
+
+	gtk_text_buffer_get_bounds(chart_panel->msg_send_buffer, &start, &end);
+	message_content = gtk_text_buffer_get_text(chart_panel->msg_send_buffer, &start, &end, FALSE);
+
+	msg_len = strlen(message_content);
+
+	if (!msg_len)
+		goto out;
+
+	msg = malloc(sizeof(struct message_packet));
+	if (!msg)
+		goto out;
+
+	msg->type = MSG_TYPE_CHART;
+	msg->version = 0x01;
+
+	msg->chart_info.from_len = chart_panel->my_name_len;
+	msg->chart_info.from = chart_panel->my_name;
+
+	msg->chart_info.to_len = strlen(send_to);
+	msg->chart_info.to = send_to;
+
+	msg->chart_info.msg_len = msg_len;
+	msg->chart_info.msg = message_content;
+
+	package_message(msg);
+
+	g_mutex_lock(&mutex_for_message_need_sended);
+	list_add_tail(&msg->next, &message_need_sended);
+	g_mutex_unlock(&mutex_for_message_need_sended);
+
+out:
+
+	g_free(message_content);
+	g_free(send_to);
+}
+
+void ball_chart_panel_clear_message(GtkWidget * button, GtkWidget * chart_panel)
+{
+
+}
+
+void ball_chart_panel_init(BallChartPanel * chart_panel, BallChartPanelClass * chart_panel_class)
+{
+	GtkWidget * window = GTK_WIDGET(chart_panel);
+
 	gtk_window_set_title(GTK_WINDOW(window), "Chart Message");
 	gtk_widget_set_size_request(window, 400, 500);
 	gtk_container_set_border_width(GTK_CONTAINER(window), 5);
 	g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
-	paned = gtk_paned_new(GTK_ORIENTATION_VERTICAL);
-	gtk_paned_set_position(GTK_PANED(paned), 300);
-	gtk_container_add(GTK_CONTAINER(window), paned);
+	chart_panel->paned = gtk_paned_new(GTK_ORIENTATION_VERTICAL);
+	gtk_paned_set_position(GTK_PANED(chart_panel->paned), 300);
+	gtk_container_add(GTK_CONTAINER(window), chart_panel->paned);
 
-	msg_tag_table = gtk_text_tag_table_new();
-	msg_recv_buffer = gtk_text_buffer_new(msg_tag_table);
-	msg_send_buffer = gtk_text_buffer_new(msg_tag_table);
+	chart_panel->msg_tag_table = gtk_text_tag_table_new();
+	chart_panel->msg_recv_buffer = gtk_text_buffer_new(chart_panel->msg_tag_table);
+	chart_panel->msg_send_buffer = gtk_text_buffer_new(chart_panel->msg_tag_table);
 
-	msg_recv = gtk_text_view_new_with_buffer(msg_recv_buffer);
-	gtk_paned_add1(GTK_PANED(paned), msg_recv);
+	chart_panel->msg_recv = gtk_text_view_new_with_buffer(chart_panel->msg_recv_buffer);
+	gtk_paned_add1(GTK_PANED(chart_panel->paned), chart_panel->msg_recv);
 
-	msg_send_view = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
-	gtk_paned_add2(GTK_PANED(paned), msg_send_view);
+	chart_panel->msg_send_view = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+	gtk_paned_add2(GTK_PANED(chart_panel->paned), chart_panel->msg_send_view);
 
-	msg_reciver_view = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
-	gtk_box_pack_start(GTK_BOX(msg_send_view), msg_reciver_view, FALSE, FALSE, 0);
+	chart_panel->msg_reciver_view = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+	gtk_box_pack_start(GTK_BOX(chart_panel->msg_send_view), chart_panel->msg_reciver_view, FALSE, FALSE, 0);
 
-	reciver_label = gtk_label_new("Msg send to :");
-	gtk_box_pack_start(GTK_BOX(msg_reciver_view), reciver_label, FALSE, FALSE, 0);
+	chart_panel->reciver_label = gtk_label_new("Msg send to :");
+	gtk_box_pack_start(GTK_BOX(chart_panel->msg_reciver_view), chart_panel->reciver_label, FALSE, FALSE, 0);
 
-	recivers_combo_box = gtk_combo_box_text_new_with_entry();
-	gtk_box_pack_start(GTK_BOX(msg_reciver_view), recivers_combo_box, TRUE, TRUE, 0);
+	chart_panel->recivers_combo_box = gtk_combo_box_text_new_with_entry();
+	gtk_box_pack_start(GTK_BOX(chart_panel->msg_reciver_view), chart_panel->recivers_combo_box, TRUE, TRUE, 0);
 
-	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(recivers_combo_box), NULL, "Jerry");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(chart_panel->recivers_combo_box), NULL, "Jerry");
 
-	msg_send = gtk_text_view_new_with_buffer(msg_send_buffer);
-	gtk_box_pack_start(GTK_BOX(msg_send_view), msg_send, TRUE, TRUE, 0);
+	chart_panel->msg_send = gtk_text_view_new_with_buffer(chart_panel->msg_send_buffer);
+	gtk_box_pack_start(GTK_BOX(chart_panel->msg_send_view), chart_panel->msg_send, TRUE, TRUE, 0);
 
-	msg_send_button_box = gtk_button_box_new(GTK_ORIENTATION_HORIZONTAL);
-	gtk_box_set_spacing(GTK_BOX(msg_send_button_box), 2);
-	gtk_button_box_set_layout(GTK_BUTTON_BOX(msg_send_button_box), GTK_BUTTONBOX_END);
-	gtk_box_pack_start(GTK_BOX(msg_send_view), msg_send_button_box, FALSE, FALSE, 0);
+	chart_panel->msg_send_button_box = gtk_button_box_new(GTK_ORIENTATION_HORIZONTAL);
+	gtk_box_set_spacing(GTK_BOX(chart_panel->msg_send_button_box), 2);
+	gtk_button_box_set_layout(GTK_BUTTON_BOX(chart_panel->msg_send_button_box), GTK_BUTTONBOX_END);
+	gtk_box_pack_start(GTK_BOX(chart_panel->msg_send_view), chart_panel->msg_send_button_box, FALSE, FALSE, 0);
 
-	send_button = gtk_button_new_with_label("Send");
-	gtk_box_pack_start(GTK_BOX(msg_send_button_box), send_button, FALSE, FALSE, 0);
+	chart_panel->send_button = gtk_button_new_with_label("Send");
+	gtk_box_pack_start(GTK_BOX(chart_panel->msg_send_button_box), chart_panel->send_button, FALSE, FALSE, 0);
+	g_signal_connect(chart_panel->send_button, "clicked", G_CALLBACK(ball_chart_panel_send_message), chart_panel);
 
-	clear_button = gtk_button_new_with_label("Clear");
-	gtk_box_pack_start(GTK_BOX(msg_send_button_box), clear_button, FALSE, FALSE, 0);
+	chart_panel->clear_button = gtk_button_new_with_label("Clear");
+	gtk_box_pack_start(GTK_BOX(chart_panel->msg_send_button_box), chart_panel->clear_button, FALSE, FALSE, 0);
+	g_signal_connect(chart_panel->clear_button, "clicked", G_CALLBACK(ball_chart_panel_clear_message), chart_panel);
+}
 
+GType ball_chart_panel_get_type()
+{
+	static GType type;
+
+	if (!type)
+	{
+		GTypeInfo typeInfo = {
+			sizeof(BallChartPanelClass),
+			NULL,
+			NULL,
+			NULL,
+			NULL,
+			NULL,
+			sizeof(BallChartPanel),
+			0,
+			(GInstanceInitFunc)ball_chart_panel_init,
+			NULL,
+		};
+
+		type = g_type_register_static(GTK_TYPE_WINDOW, "chart_panel", &typeInfo, 0);
+	}
+
+	return type;
+}
+
+GtkWidget * ball_chart_panel_new()
+{
+	return GTK_WIDGET(g_object_new(BALL_TYPE_CHART_PANEL, "type", GTK_WINDOW_TOPLEVEL, NULL));
+}
+
+int main(int ac, char ** av)
+{
+	GtkWidget * window;
+
+	gtk_init(&ac, &av);
+
+	window = ball_chart_panel_new();
 
 	gtk_widget_show_all(window);
-
-	g_timeout_add_seconds(1, ball_check_recive_message, NULL);
-	g_thread_new("msg_process", ball_process_message_transfor, NULL);
 
 	gtk_main();
 
