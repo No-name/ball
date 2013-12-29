@@ -75,5 +75,6 @@ extern int get_message(struct message_packet * msg, struct msg_status * status, 
 extern int send_message(struct message_send_queue * queue, int skfd);
 extern struct message_packet * initial_new_input_msg(struct msg_status * status);
 extern void message_parse_head(struct message_packet * msg);
+extern void message_parse_body(struct message_packet * msg);
 extern void present_message(struct message_packet * msg);
 #endif

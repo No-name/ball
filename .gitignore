@@ -17,6 +17,10 @@
 *.out
 *.app
 
+# VIM temp file
+*.swp
+
 #target file
 server
 client
+gui_client
