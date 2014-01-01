@@ -1,39 +1,65 @@
 #include <gtk/gtk.h>
 
-#define BALL_TYPE_MAIN_PANEL (ball_main_panel_get_type())
-#define BALL_MAIN_PANEL(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), BALL_TYPE_MAIN_PANEL, BallMainPanel))
-#define BALL_IS_MAIN_PANEL(obj) (G_TYPE_CHECK_INSTANCE_TYPE((obj), BALL_TYPE_MAIN_PANEL))
-#define BALL_MAIN_PANEL_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST((klass), BALL_TYPE_MAIN_PANEL, BallMainPanelClass))
-#define BALL_IS_MAIN_PANEL_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), BALL_TYPE_CHART_PANEL))
-#define BALL_CHART_PANEL_GET_CLASS(obj) (G_TYPE_INSTANCE_GET_CLASS((obj), BALL_TYPE_CHART_PANEL, BallMainPanelClass))
+#include <stdlib.h>
+#include <string.h>
 
-typedef struct _BallMainPanel BallMainPanel;
-typedef struct _BallMainPanelClass BallMainPanelClass;
+#include "list.h"
+#include "ball.h"
 
-enum peer_info_em {
-	PEER_INFO_NAME,
-	PEER_INFO_MAX,
-};
+#include "gui_client.h"
+
+
+extern struct list_head ball_peer_info_set;
 
 GType peer_info_type[PEER_INFO_MAX] = 
 {
 	[PEER_INFO_NAME] = G_TYPE_STRING,
 };
 
-struct _BallMainPanel
+void ball_peer_info_set_chart_panel(char * name, BallChartPanel * chart_panel)
 {
-	GtkWindow parent;
+	struct peer_info * peer;
 
-	GtkListStore * peer_list;
-	GtkCellRenderer * name_renderer;
-	GtkWidget * peer_list_view;
-	GtkWidget * peer_scrolled_view;
-};
+	list_for_each_entry(peer, &ball_peer_info_set, next)
+	{
+		if (!strcmp(peer->name, name))
+		{
+			peer->chart_panel = chart_panel;
+			return;
+		}
+	}
+}
 
-struct _BallMainPanelClass
+void ball_peer_info_unset_chart_panel(char * name)
 {
-	GtkWindowClass parent_class;
-};
+	struct peer_info * peer;
+	list_for_each_entry(peer, &ball_peer_info_set, next)
+	{
+		if (!strcmp(peer->name, name))
+		{
+			peer->chart_panel = NULL;
+			return;
+		}
+	}
+}
+
+void ball_main_panel_responed_row_activated(GtkTreeView * tree, GtkTreePath * path, GtkTreeViewColumn * column, BallMainPanel * main_panel)
+{
+	GtkWidget * chart_panel;
+	GtkTreeIter iter;
+	gchar * name;
+
+	gtk_tree_model_get_iter(GTK_TREE_MODEL(main_panel->peer_list_store), &iter, path);
+	gtk_tree_model_get(GTK_TREE_MODEL(main_panel->peer_list_store), &iter, PEER_INFO_NAME, &name, -1);
+
+	chart_panel = ball_chart_panel_new();
+	gtk_window_set_title(GTK_WINDOW(chart_panel), name);
+
+	ball_peer_info_set_chart_panel(name, BALL_CHART_PANEL(chart_panel));
+
+	gtk_widget_show_all(chart_panel);
+	g_free(name);
+}
 
 void ball_main_panel_init(BallMainPanel * main_panel, BallMainPanelClass * main_panel_class)
 {
@@ -48,21 +74,15 @@ void ball_main_panel_init(BallMainPanel * main_panel, BallMainPanelClass * main_
 	main_panel->peer_scrolled_view = gtk_scrolled_window_new(NULL, NULL);
 	gtk_container_add(GTK_CONTAINER(window), main_panel->peer_scrolled_view);
 
-	main_panel->peer_list = gtk_list_store_new(PEER_INFO_MAX, G_TYPE_STRING);
+	main_panel->peer_list_store = gtk_list_store_new(PEER_INFO_MAX, peer_info_type[PEER_INFO_NAME]);
 
-	main_panel->peer_list_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(main_panel->peer_list));
+	main_panel->peer_list_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(main_panel->peer_list_store));
+	g_signal_connect(main_panel->peer_list_view, "row-activated", G_CALLBACK(ball_main_panel_responed_row_activated), main_panel);
 	gtk_container_add(GTK_CONTAINER(main_panel->peer_scrolled_view), main_panel->peer_list_view);
 
 	main_panel->name_renderer = gtk_cell_renderer_text_new();
 
 	gtk_tree_view_insert_column_with_attributes(GTK_TREE_VIEW(main_panel->peer_list_view), -1, "Peer Name", main_panel->name_renderer, "text", PEER_INFO_NAME, NULL);
-
-	/*
-	 * for test insert some peer name to the store
-	 */
-
-	gtk_list_store_insert_with_values(main_panel->peer_list, &iter, -1, PEER_INFO_NAME, "Obama", -1);
-	gtk_list_store_insert_with_values(main_panel->peer_list, &iter, -1, PEER_INFO_NAME, "Horbit", -1);
 }
 
 GType ball_main_panel_get_type()
@@ -95,17 +115,33 @@ GtkWidget * ball_main_panel_new()
 	return GTK_WIDGET(g_object_new(BALL_TYPE_MAIN_PANEL, "type", GTK_WINDOW_TOPLEVEL, NULL));
 }
 
-int main(int ac, char ** av)
+void ball_add_peer_info(BallMainPanel * main_panel, struct peer_info * peer_info)
 {
-	GtkWidget * window;
+	GtkTreeIter iter;
 
-	gtk_init(&ac, &av);
+	list_add_tail(&peer_info->next, &ball_peer_info_set);
 
-	window = ball_main_panel_new();
+	gtk_list_store_insert_with_values(main_panel->peer_list_store, &iter, -1, PEER_INFO_NAME, peer_info->name, -1);
+}
 
-	gtk_widget_show_all(window);
+void ball_test_initial_peer_members(BallMainPanel * main_panel)
+{
+	struct peer_info * peer_info;
+	char ** name;
+	char * members[] = {
+		"Hokin",
+		"Obama",
+		"Meilin",
+		"Pager",
+		NULL
+	};
 
-	gtk_main();
+	for (name = members; *name; name++)
+	{
+		peer_info = malloc(sizeof(struct peer_info));
+		memset(peer_info, 0, sizeof(struct peer_info));
 
-	return 0;
+		strcpy(peer_info->name, *name);
+		ball_add_peer_info(main_panel, peer_info);
+	}
 }
