@@ -74,9 +74,9 @@ void ball_chart_panel_send_message(GtkWidget * button, BallChartPanel * chart_pa
 
 	int msg_len;
 	GtkTextIter start, end;
-	gchar * message_content, * send_to;
+	gchar * message_content, * send_from;
 
-	send_to = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(chart_panel->recivers_combo_box));
+	send_from = ball_get_myself_name();
 
 	gtk_text_buffer_get_bounds(chart_panel->msg_send_buffer, &start, &end);
 	message_content = gtk_text_buffer_get_text(chart_panel->msg_send_buffer, &start, &end, FALSE);
@@ -93,11 +93,11 @@ void ball_chart_panel_send_message(GtkWidget * button, BallChartPanel * chart_pa
 	msg->type = MSG_TYPE_CHART;
 	msg->version = 0x01;
 
-	msg->chart_info.from_len = chart_panel->my_name_len;
-	msg->chart_info.from = chart_panel->my_name;
+	msg->chart_info.from_len = strlen(send_from);
+	msg->chart_info.from = send_from;
 
-	msg->chart_info.to_len = strlen(send_to);
-	msg->chart_info.to = send_to;
+	msg->chart_info.to_len = chart_panel->name;
+	msg->chart_info.to = chart_panel->name_len;
 
 	msg->chart_info.msg_len = msg_len;
 	msg->chart_info.msg = message_content;
@@ -113,7 +113,6 @@ void ball_chart_panel_send_message(GtkWidget * button, BallChartPanel * chart_pa
 out:
 
 	g_free(message_content);
-	g_free(send_to);
 }
 
 void ball_chart_panel_clear_message(GtkWidget * button, BallChartPanel * chart_panel)

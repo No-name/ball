@@ -27,8 +27,8 @@ struct _BallChartPanel
 	GtkWidget * msg_reciver_view;
 	GtkWidget * reciver_label, * recivers_combo_box;
 
-	char * my_name;
-	int my_name_len;
+	char * name;
+	int name_len;
 };
 
 struct _BallChartPanelClass
@@ -81,5 +81,7 @@ struct peer_info {
 
 	BallChartPanel * chart_panel;
 };
+
+extern char * ball_get_myself_name();
 
 #endif

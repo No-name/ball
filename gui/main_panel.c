@@ -141,6 +141,8 @@ void ball_test_initial_peer_members(BallMainPanel * main_panel)
 		peer_info = malloc(sizeof(struct peer_info));
 		memset(peer_info, 0, sizeof(struct peer_info));
 
+		INIT_LIST_HEAD(&peer_info->msg_unshow);
+
 		strcpy(peer_info->name, *name);
 		ball_add_peer_info(main_panel, peer_info);
 	}

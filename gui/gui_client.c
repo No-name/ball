@@ -160,11 +160,20 @@ gpointer ball_process_message_transfor(gpointer user_data)
 	return 0;
 }
 
+char * login_name;
+
+char * ball_get_myself_name()
+{
+	return login_name;
+}
+
 gboolean ball_chart_panel_update_comming_message(gpointer user_data)
 {
 	struct message_packet * msg;
 
-	BallChartPanel * chart_panel = BALL_CHART_PANEL(user_data);
+	struct peer_info * peer;
+
+	BallChartPanel * chart_panel;
 
 	LIST_HEAD(message_wait_proc);
 
@@ -182,23 +191,41 @@ gboolean ball_chart_panel_update_comming_message(gpointer user_data)
 		msg = list_first_entry(&message_wait_proc, struct message_packet, next);
 		list_del(&msg->next);
 
-		ball_chart_panel_present_message(chart_panel, msg);
+		list_for_each_entry(peer, &ball_peer_info_set, next)
+		{
+			if (!strncmp(peer->name, msg->chart_info.from, msg->chart_info.from_len))
+			{
+				if (peer->chart_panel)
+				{
+					ball_chart_panel_present_message(peer->chart_panel, msg);
+					free(msg);
+				}
+				else
+				{
+					list_add_tail(&msg->next, &peer->msg_unshow);
+				}
 
-		free(msg);
+				msg = NULL;
+				break;
+			}
+		}
+
+		if (msg)
+			free(msg);
 	}
 
 	return TRUE;
 }
 
-void ball_chart_panel_process_login(BallChartPanel * chart_panel)
+void ball_chart_panel_process_login()
 {
 	struct message_packet * msg = malloc(sizeof(struct message_packet));
 
 	msg->type = MSG_TYPE_LOGIN;
 	msg->version = 0x01;
 
-	msg->login_info.name_len = chart_panel->my_name_len;
-	msg->login_info.name = chart_panel->my_name;
+	msg->login_info.name_len = strlen(login_name);
+	msg->login_info.name = login_name;
 
 	msg->login_info.passwd_len = strlen(PASSWD_DEFAULT);
 	msg->login_info.passwd = PASSWD_DEFAULT;
