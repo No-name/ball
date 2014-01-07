@@ -55,6 +55,9 @@ void ball_main_panel_responed_row_activated(GtkTreeView * tree, GtkTreePath * pa
 	chart_panel = ball_chart_panel_new();
 	gtk_window_set_title(GTK_WINDOW(chart_panel), name);
 
+	BALL_CHART_PANEL(chart_panel)->name = strdup(name);
+	BALL_CHART_PANEL(chart_panel)->name_len = strlen(name);
+
 	ball_peer_info_set_chart_panel(name, BALL_CHART_PANEL(chart_panel));
 
 	gtk_widget_show_all(chart_panel);

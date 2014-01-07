@@ -1,6 +1,33 @@
 #ifndef _GUI_CLIENT_H_
 #define _GUI_CLIENT_H_
 
+/********** FOLLOW DEFINE THE LOGIN PANEL ***************/
+#define BALL_TYPE_LOGIN_PANEL (ball_login_panel_get_type())
+#define BALL_LOGIN_PANEL(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), BALL_TYPE_LOGIN_PANEL, BallLoginPanel))
+#define BALL_IS_LOGIN_PANEL(obj) (G_TYPE_CHECK_INSTANCE_TYPE((obj), BALL_TYPE_LOGIN_PANEL))
+#define BALL_LOGIN_PANEL_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST((klass), BALL_TYPE_LOGIN_PANEL, BallLoginPanelClass))
+#define BALL_IS_LOGIN_PANEL_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), BALL_TYPE_LOGIN_PANEL))
+#define BALL_LOGIN_PANEL_GET_CLASS(obj) (G_TYPE_INSTANCE_GET_CLASS((obj), BALL_TYPE_LOGIN_PANEL, BallLoginPanelClass))
+
+typedef struct _BallLoginPanel BallLoginPanel;
+typedef struct _BallLoginPanelClass BallLoginPanelClass;
+
+struct _BallLoginPanel
+{
+	GtkWindow parent;
+
+	GtkWidget * label_name, * label_passwd;
+	GtkWidget * entry_name, * entry_passwd;
+	GtkWidget * button_login, * button_cancel;
+};
+
+struct _BallLoginPanelClass
+{
+	GtkWindowClass parent;
+};
+
+extern GtkWidget * ball_login_panel_new();
+
 /********** FOLLOW DEFINE THE CHART PANEL ***************/
 
 #define BALL_TYPE_CHART_PANEL (ball_chart_panel_get_type())

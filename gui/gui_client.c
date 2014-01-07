@@ -167,6 +167,11 @@ char * ball_get_myself_name()
 	return login_name;
 }
 
+void ball_set_myself_name(char * name)
+{
+	login_name = strdup(name);
+}
+
 gboolean ball_chart_panel_update_comming_message(gpointer user_data)
 {
 	struct message_packet * msg;
@@ -217,26 +222,6 @@ gboolean ball_chart_panel_update_comming_message(gpointer user_data)
 	return TRUE;
 }
 
-void ball_chart_panel_process_login()
-{
-	struct message_packet * msg = malloc(sizeof(struct message_packet));
-
-	msg->type = MSG_TYPE_LOGIN;
-	msg->version = 0x01;
-
-	msg->login_info.name_len = strlen(login_name);
-	msg->login_info.name = login_name;
-
-	msg->login_info.passwd_len = strlen(PASSWD_DEFAULT);
-	msg->login_info.passwd = PASSWD_DEFAULT;
-
-	package_message(msg);
-
-	g_mutex_lock(&mutex_for_message_need_sended);
-	list_add_tail(&msg->next, &message_need_sended);
-	g_mutex_unlock(&mutex_for_message_need_sended);
-}
-
 #if 0
 int main(int ac, char ** av)
 {
@@ -259,8 +244,6 @@ int main(int ac, char ** av)
 
 	gtk_widget_show_all(window);
 
-	g_thread_new("message_proc", ball_process_message_transfor, NULL);
-	g_timeout_add_seconds(1, ball_chart_panel_update_comming_message, window);
 	//g_timeout_add_seconds(1, ball_chart_moniter_message_comming, NULL);
 
 	gtk_main();
@@ -275,11 +258,29 @@ int main(int ac, char ** av)
 
 	gtk_init(&ac, &av);
 
-	window = ball_main_panel_new();
+	window = ball_login_panel_new();
 
 	gtk_widget_show_all(window);
 
-	ball_test_initial_peer_members(BALL_MAIN_PANEL(window));
+	g_thread_new("message_proc", ball_process_message_transfor, NULL);
+	g_timeout_add_seconds(1, ball_chart_panel_update_comming_message, window);
+
+	gtk_main();
+
+	return 0;
+}
+
+int _main(int ac, char ** av)
+{
+	GtkWidget * window;
+
+	login_name = "Wiley";
+
+	gtk_init(&ac, &av);
+
+	window = ball_main_panel_new();
+
+	gtk_widget_show_all(window);
 
 	gtk_main();
 

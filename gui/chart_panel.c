@@ -96,8 +96,8 @@ void ball_chart_panel_send_message(GtkWidget * button, BallChartPanel * chart_pa
 	msg->chart_info.from_len = strlen(send_from);
 	msg->chart_info.from = send_from;
 
-	msg->chart_info.to_len = chart_panel->name;
-	msg->chart_info.to = chart_panel->name_len;
+	msg->chart_info.to_len = chart_panel->name_len;
+	msg->chart_info.to = chart_panel->name;
 
 	msg->chart_info.msg_len = msg_len;
 	msg->chart_info.msg = message_content;
