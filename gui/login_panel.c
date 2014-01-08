@@ -56,7 +56,7 @@ void ball_process_login(GtkWidget * button, BallLoginPanel * login_panel)
 	gtk_window_set_title(GTK_WINDOW(window), name);
 	ball_test_initial_peer_members(BALL_MAIN_PANEL(window));
 
-	//gtk_widget_destroy(GTK_WIDGET(login_panel));
+	gtk_widget_destroy(GTK_WIDGET(login_panel));
 }
 
 void ball_login_panel_init(BallLoginPanel * login_panel, BallLoginPanelClass * login_panel_class)
@@ -69,7 +69,7 @@ void ball_login_panel_init(BallLoginPanel * login_panel, BallLoginPanelClass * l
 	gtk_widget_set_size_request(window, 400, 300);
 	gtk_window_set_title(GTK_WINDOW(window), "Hi");
 	gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
-	g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+	//g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
 	grid = gtk_grid_new();
 	gtk_widget_set_margin_top(grid, 40);

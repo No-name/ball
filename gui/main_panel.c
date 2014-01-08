@@ -16,6 +16,21 @@ GType peer_info_type[PEER_INFO_MAX] =
 	[PEER_INFO_NAME] = G_TYPE_STRING,
 };
 
+void ball_present_undeliver_message(struct peer_info * peer)
+{
+	struct message_packet * msg;
+
+	while (!list_empty(&peer->msg_unshow))
+	{
+		msg = list_first_entry(&peer->msg_unshow, struct message_packet, next);
+		list_del(&msg->next);
+
+		ball_chart_panel_present_message(peer->chart_panel, msg);
+
+		free(msg);
+	}
+}
+
 void ball_peer_info_set_chart_panel(char * name, BallChartPanel * chart_panel)
 {
 	struct peer_info * peer;
@@ -25,6 +40,8 @@ void ball_peer_info_set_chart_panel(char * name, BallChartPanel * chart_panel)
 		if (!strcmp(peer->name, name))
 		{
 			peer->chart_panel = chart_panel;
+
+			ball_present_undeliver_message(peer);
 			return;
 		}
 	}
@@ -40,6 +57,48 @@ void ball_peer_info_unset_chart_panel(char * name)
 			peer->chart_panel = NULL;
 			return;
 		}
+	}
+}
+
+gboolean ball_check_main_panel_close(GtkWidget * window, GdkEvent * event, gpointer user_data)
+{
+	GtkWidget * dialog;
+	GtkWidget * content;
+	GtkWidget * label;
+
+	int ret;
+
+	dialog = gtk_dialog_new_with_buttons(NULL,
+			GTK_WINDOW(window), 
+			GTK_DIALOG_MODAL,
+			GTK_STOCK_OK,
+			GTK_RESPONSE_ACCEPT,
+			GTK_STOCK_CANCEL,
+			GTK_RESPONSE_REJECT,
+			NULL);
+
+	content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+
+	label = gtk_label_new("Do you want close the program");
+	gtk_widget_set_margin_top(label, 20);
+	gtk_widget_set_margin_bottom(label, 30);
+	gtk_widget_set_margin_left(label, 20);
+	gtk_widget_set_margin_right(label, 20);
+
+	gtk_container_add(GTK_CONTAINER(content), label);
+
+	gtk_widget_show_all(content);
+
+	ret =  gtk_dialog_run(GTK_DIALOG(dialog));
+
+	gtk_widget_destroy(dialog);
+
+	switch (ret)
+	{
+		case GTK_RESPONSE_REJECT:
+			return TRUE;
+		default:
+			return FALSE;
 	}
 }
 
@@ -72,6 +131,7 @@ void ball_main_panel_init(BallMainPanel * main_panel, BallMainPanelClass * main_
 	gtk_window_set_title(GTK_WINDOW(window), "Nice Day");
 	gtk_widget_set_size_request(window, 350, 800);
 	gtk_container_set_border_width(GTK_CONTAINER(window), 5);
+	g_signal_connect(window, "delete-event", G_CALLBACK(ball_check_main_panel_close), NULL);
 	g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
 	main_panel->peer_scrolled_view = gtk_scrolled_window_new(NULL, NULL);

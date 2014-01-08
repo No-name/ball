@@ -120,6 +120,16 @@ void ball_chart_panel_clear_message(GtkWidget * button, BallChartPanel * chart_p
 	gtk_text_buffer_set_text(chart_panel->msg_send_buffer, "", -1);
 }
 
+gboolean ball_responed_chart_panel_delete(BallChartPanel * chart_panel, GdkEvent * event, gpointer user_data)
+{
+	if (!chart_panel->name)
+		return FALSE;
+
+	ball_peer_info_unset_chart_panel(chart_panel->name);
+
+	return FALSE;
+}
+
 void ball_chart_panel_init(BallChartPanel * chart_panel, BallChartPanelClass * chart_panel_class)
 {
 	GtkWidget * window = GTK_WIDGET(chart_panel);
@@ -127,7 +137,8 @@ void ball_chart_panel_init(BallChartPanel * chart_panel, BallChartPanelClass * c
 	gtk_window_set_title(GTK_WINDOW(window), "Chart Message");
 	gtk_widget_set_size_request(window, 400, 500);
 	gtk_container_set_border_width(GTK_CONTAINER(window), 5);
-	g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+	g_signal_connect(window, "delete-event", G_CALLBACK(ball_responed_chart_panel_delete), NULL);
+	//g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
 	chart_panel->paned = gtk_paned_new(GTK_ORIENTATION_VERTICAL);
 	gtk_paned_set_position(GTK_PANED(chart_panel->paned), 300);
