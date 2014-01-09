@@ -122,6 +122,15 @@ void package_message(struct message_packet * msg)
 			p += len;
 			break;
 
+		case MSG_TYPE_PEER_LIST:
+			if (msg->peer_list.more)
+				*p = 0x01;
+			else
+				*p = 0x00;
+
+			p = msg->peer_list.end;
+			break;
+
 		default:
 			assert(0 && "message type invalid");
 			msg->length = 0;

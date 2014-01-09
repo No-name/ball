@@ -25,6 +25,7 @@ enum {
 enum {
 	MSG_TYPE_LOGIN,
 	MSG_TYPE_CHART,
+	MSG_TYPE_PEER_LIST,
 };
 
 struct message_packet {
@@ -51,6 +52,12 @@ struct message_packet {
 			char * to;
 			char * msg;
 		} chart_info;
+
+		struct {
+			int more; //message not complete, need more data
+			char * start;
+			char * end;
+		} peer_list;
 	};
 
 	char content[MAX_MESSAGE_PACKET_LEN];

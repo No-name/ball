@@ -160,25 +160,170 @@ gpointer ball_process_message_transfor(gpointer user_data)
 	return 0;
 }
 
-char * login_name;
+static char * g_login_name;
+
+static BallMainPanel * g_main_panel;
 
 char * ball_get_myself_name()
 {
-	return login_name;
+	return g_login_name;
 }
 
 void ball_set_myself_name(char * name)
 {
-	login_name = strdup(name);
+	g_login_name = strdup(name);
 }
 
-gboolean ball_chart_panel_update_comming_message(gpointer user_data)
+BallMainPanel * ball_get_main_panel()
 {
-	struct message_packet * msg;
+	return g_main_panel;
+}
 
+void ball_set_main_panel(BallMainPanel * panel)
+{
+	g_main_panel = panel;
+}
+
+int ball_chart_panel_update_message(struct message_packet * msg)
+{
 	struct peer_info * peer;
 
 	BallChartPanel * chart_panel;
+
+	list_for_each_entry(peer, &ball_peer_info_set, next)
+	{
+		if (!strncmp(peer->name, msg->chart_info.from, msg->chart_info.from_len))
+		{
+			if (peer->chart_panel)
+			{
+				ball_chart_panel_present_message(peer->chart_panel, msg);
+				free(msg);
+			}
+			else
+			{
+				list_add_tail(&msg->next, &peer->msg_unshow);
+			}
+
+			return TRUE;
+		}
+	}
+
+	return FALSE;
+}
+
+void ball_test_simulate_peer_list()
+{
+	static char * members[] = {
+		"Hokin",
+		"Obama",
+		"Meilin",
+		"Pager",
+		NULL
+	};
+
+	struct message_packet * msg;
+	char * start, * end, * last;
+	char * p, * more;
+	char * name;
+	int name_len;
+	int i;
+
+	msg = malloc(sizeof(struct message_packet));
+	msg->type = MSG_TYPE_PEER_LIST;
+	msg->version = 0x01;
+
+	p = msg->content;
+	end = msg->content + MAX_MESSAGE_PACKET_LEN;
+
+	/* step forword to date segment */
+	p += MSG_HEAD_LENGTH;
+
+	/* here we reserved position for the more flag */
+	more = p;
+	p += 1;
+
+	msg->peer_list.start = p;
+
+	for (i = 0; members[i]; i++)
+	{
+		name = members[i];
+		name_len = strlen(name);
+
+		last = p;
+
+		if (p >= end)
+			break;
+
+		*p = name_len;
+		p += 1;
+
+		if (p + name_len >= end)
+			break;
+
+		memcpy(p, name, name_len);
+		p += name_len;
+	}
+
+	if (members[i])
+		msg->peer_list.more = TRUE;
+	else
+		msg->peer_list.more = FALSE;
+
+	msg->peer_list.end = last;
+
+	package_message(msg);
+
+	list_add_tail(&msg->next, &message_comming);
+}
+
+LIST_HEAD(message_peer_list);
+
+int ball_main_panel_update_peer_list(struct message_packet * msg)
+{
+	struct peer_info * peer;
+	char * start, * end;
+	char * name;
+	int name_len;
+
+	list_add_tail(&msg->next, &message_peer_list);
+
+	if (msg->peer_list.more)
+		return TRUE;
+
+	while (!list_empty(&message_peer_list))
+	{
+		msg = list_first_entry(&message_peer_list, struct message_packet, next);
+		list_del(&msg->next);
+
+		start = msg->peer_list.start;
+		end = msg->peer_list.end;
+
+		while (start < end)
+		{
+			name_len = *start;
+			start += 1;
+
+			name = start;
+			start += name_len;
+
+			peer = malloc(sizeof(struct peer_info));
+			memset(peer, 0, sizeof(struct peer_info));
+
+			INIT_LIST_HEAD(&peer->msg_unshow);
+			strncpy(peer->name, name, name_len);
+			peer->name[name_len] = '\0';
+
+			ball_add_peer_info(ball_get_main_panel(), peer);
+		}
+	}
+
+	return TRUE;
+}
+
+gboolean ball_process_comming_message(gpointer user_data)
+{
+	int ret;
+	struct message_packet * msg;
 
 	LIST_HEAD(message_wait_proc);
 
@@ -196,26 +341,20 @@ gboolean ball_chart_panel_update_comming_message(gpointer user_data)
 		msg = list_first_entry(&message_wait_proc, struct message_packet, next);
 		list_del(&msg->next);
 
-		list_for_each_entry(peer, &ball_peer_info_set, next)
+		switch (msg->type)
 		{
-			if (!strncmp(peer->name, msg->chart_info.from, msg->chart_info.from_len))
-			{
-				if (peer->chart_panel)
-				{
-					ball_chart_panel_present_message(peer->chart_panel, msg);
-					free(msg);
-				}
-				else
-				{
-					list_add_tail(&msg->next, &peer->msg_unshow);
-				}
-
-				msg = NULL;
+			case MSG_TYPE_CHART:
+				ret = ball_chart_panel_update_message(msg);
 				break;
-			}
+			case MSG_TYPE_PEER_LIST:
+				ret = ball_main_panel_update_peer_list(msg);
+				break;
+			default:
+				ret = FALSE;
+				break;
 		}
 
-		if (msg)
+		if (ret == FALSE)
 			free(msg);
 	}
 
@@ -263,24 +402,7 @@ int main(int ac, char ** av)
 	gtk_widget_show_all(window);
 
 	g_thread_new("message_proc", ball_process_message_transfor, NULL);
-	g_timeout_add_seconds(1, ball_chart_panel_update_comming_message, window);
-
-	gtk_main();
-
-	return 0;
-}
-
-int _main(int ac, char ** av)
-{
-	GtkWidget * window;
-
-	login_name = "Wiley";
-
-	gtk_init(&ac, &av);
-
-	window = ball_main_panel_new();
-
-	gtk_widget_show_all(window);
+	g_timeout_add_seconds(1, ball_process_comming_message, window);
 
 	gtk_main();
 

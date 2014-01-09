@@ -4,3 +4,8 @@ WHAT TO DO
 	1. the client side need an heart bit
 	2. the client side need a login process
 
+
+Wed Jan  8 22:16:52 CST 2014
+	attention!!! should deal with multi thread environment, special the message
+	process routiens
+
