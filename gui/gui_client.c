@@ -244,12 +244,12 @@ void ball_test_simulate_peer_list()
 
 	msg->peer_list.start = p;
 
+	last = p;
+
 	for (i = 0; members[i]; i++)
 	{
 		name = members[i];
 		name_len = strlen(name);
-
-		last = p;
 
 		if (p >= end)
 			break;
@@ -262,6 +262,8 @@ void ball_test_simulate_peer_list()
 
 		memcpy(p, name, name_len);
 		p += name_len;
+
+		last = p;
 	}
 
 	if (members[i])
@@ -272,6 +274,8 @@ void ball_test_simulate_peer_list()
 	msg->peer_list.end = last;
 
 	package_message(msg);
+
+	message_parse_head(msg);
 
 	list_add_tail(&msg->next, &message_comming);
 }

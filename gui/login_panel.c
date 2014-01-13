@@ -54,7 +54,9 @@ void ball_process_login(GtkWidget * button, BallLoginPanel * login_panel)
 	window = ball_main_panel_new();
 	gtk_widget_show_all(window);
 	gtk_window_set_title(GTK_WINDOW(window), name);
-	ball_test_initial_peer_members(BALL_MAIN_PANEL(window));
+
+	ball_set_main_panel(BALL_MAIN_PANEL(window));
+	ball_test_simulate_peer_list();
 
 	gtk_widget_destroy(GTK_WIDGET(login_panel));
 }
