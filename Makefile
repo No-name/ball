@@ -1,23 +1,18 @@
-SRC=client.c server.c ball.c
-OBJ=$(SRC:%.c=%.o)
+.PHONY:all server client lib
 
-CFLAG = -g -Wall
-.PHONY:all
+all:server client
 
-all:client server gui_client
+server:lib
+	cd server && make
 
-gui_client : gui_client.c ball.o
-	gcc -o $@ $(CFLAG) $^ `pkg-config --cflags --libs gtk+-3.0`
+client:lib
+	cd gui && make
 
-client:client.o ball.o
-	gcc -o $@ $(CFLAG) $^
-
-server:server.o ball.o
-	gcc -o $@ $(CFLAG) $^
-
-.c.o:
-	gcc -c $< $(CFLAG) -o $@ 
+lib:
+	cd lib && make
 
 .PHONY:clean
 clean:
-	rm client server $(OBJ)
+	cd server && make clean
+	cd gui && make clean
+	cd lib && make clean

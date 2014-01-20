@@ -21,6 +21,5 @@
 *.swp
 
 #target file
-server
-client
-gui_client
+ball_server
+ball_client
