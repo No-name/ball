@@ -287,11 +287,16 @@ int ball_main_panel_update_peer_list(struct message_packet * msg)
 	struct peer_info * peer;
 	char * start, * end;
 	char * name;
+	char * more;
 	int name_len;
+	int info_len;
+	char * info;
 
 	list_add_tail(&msg->next, &message_peer_list);
 
-	if (msg->peer_list.more)
+	more = msg->content + MSG_HEAD_LENGTH;
+
+	if (*more)
 		return TRUE;
 
 	while (!list_empty(&message_peer_list))
@@ -299,8 +304,8 @@ int ball_main_panel_update_peer_list(struct message_packet * msg)
 		msg = list_first_entry(&message_peer_list, struct message_packet, next);
 		list_del(&msg->next);
 
-		start = msg->peer_list.start;
-		end = msg->peer_list.end;
+		start = msg->content + MSG_HEAD_LENGTH + 1; //one for more
+		end = msg->content + msg->length;
 
 		while (start < end)
 		{

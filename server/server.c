@@ -178,6 +178,8 @@ struct account_info * get_account_from_db(char * name, int len)
  */
 int ball_pack_relationship_packet(char * account_name, const char * relations)
 {
+	printf("%s: %s\n", account_name, relations);
+
 	struct account_info * account;
 	struct message_packet * msg;
 	struct message_send_queue * output_queue;
@@ -247,6 +249,7 @@ int ball_pack_relationship_packet(char * account_name, const char * relations)
 
 		message_package_head(msg);
 
+		list_add_tail(&msg->next, &output_queue->msg_list);
 		send_message(output_queue, peer_skfd);
 
 		if (!re)
@@ -270,11 +273,16 @@ void process_message(struct message_packet * msg, struct peer_info * peer)
 			account = malloc(sizeof(struct account_info));
 			memcpy(account->name, msg->login_info.name, msg->login_info.name_len);
 			account->name_len = msg->login_info.name_len;
+			account->name[account->name_len] = '\0';
 			account->conn = peer;
 
 			add_account_info_to_db(account);
 
 			free(msg);
+
+			//ball_respond_relationship(account->name);
+			ball_pack_relationship_packet(account->name, "{Lary,Alice}");
+
 			break;
 		case MSG_TYPE_CHART:
 			account = get_account_from_db(msg->chart_info.to, msg->chart_info.to_len);
