@@ -6,7 +6,7 @@ CFLAG = -g -Wall
 TARGET=ball_server
 
 $(TARGET):$(OBJ)
-	gcc -o $@ $(CFLAG) $^ ../lib/ball.o
+	gcc -o $@ $(CFLAG) $^ ../lib/ball.o -lpq
 
 .c.o:
 	gcc -c $< $(CFLAG) -o $@ -I../include

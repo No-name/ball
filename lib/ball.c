@@ -146,6 +146,19 @@ void package_message(struct message_packet * msg)
 	return;
 }
 
+void message_package_head(struct message_packet * msg)
+{
+	char * p = msg->content;
+
+	*(int *)p = htonl(msg->version);
+	p += 4;
+
+	*(int *)p = htonl(msg->type);
+	p += 4;
+
+	*(int *)p = htonl(msg->length);
+}
+
 void message_parse_head(struct message_packet * msg)
 {
 	char * p = msg->content;

@@ -8,4 +8,12 @@
 #define container_of(PTR, TYPE, MEMBER) \
         (TYPE *)((char *)(PTR) - offsetof(TYPE, MEMBER))
 
+#ifndef TRUE
+#define TRUE (1 == 1)
+#endif
+
+#ifndef FALSE
+#define FALSE (1 == 0)
+#endif
+
 #endif
