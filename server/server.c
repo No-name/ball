@@ -280,8 +280,8 @@ void process_message(struct message_packet * msg, struct peer_info * peer)
 
 			free(msg);
 
-			//ball_respond_relationship(account->name);
-			ball_pack_relationship_packet(account->name, "{Lary,Alice}");
+			ball_respond_relationship(account->name);
+			//ball_pack_relationship_packet(account->name, "{Lary,Alice}");
 
 			break;
 		case MSG_TYPE_CHART:

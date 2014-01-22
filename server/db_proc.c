@@ -44,7 +44,7 @@ int ball_respond_relationship(char * name)
 	char * relations;
 
 	len = snprintf(sql_buf, BALL_MAX_SQL_BUF_LEN,
-			"SELECT relationship from %s WHERE name = '%s');",
+			"SELECT relationship from %s WHERE name = '%s';",
 			g_table_name,
 			name);
 
@@ -54,12 +54,14 @@ int ball_respond_relationship(char * name)
 	conn = PQconnectdb(BALL_DB_CONN_INFO);
 	if (CONNECTION_OK != PQstatus(conn))
 	{
+		fprintf(stderr, "%s\n", PQerrorMessage(conn));
 		return FALSE;
 	}
 
 	result = PQexec(conn, sql_buf);
 	if (PGRES_TUPLES_OK != PQresultStatus(result))
 	{
+		fprintf(stderr, "%s\n", PQresultErrorMessage(result));
 		return FALSE;
 	}
 
@@ -68,11 +70,13 @@ int ball_respond_relationship(char * name)
 
 	if (ntuples != 1 || nfields != 1)
 	{
+		fprintf(stderr, "tuple: %d and field: %d\n", ntuples, nfields);
 		return FALSE;
 	}
 
 	relations = PQgetvalue(result, 0, 0);
 
+	fprintf(stderr, "relations: %s\n", relations);
 	ball_pack_relationship_packet(name, relations);
 
 	PQclear(result);
