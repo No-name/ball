@@ -105,6 +105,16 @@ SELECT pg_catalog.setval('memberinfo_id_seq', 4, true);
 --
 
 COPY relationship (master, member) FROM stdin;
+Bob	Alan
+Bob	Alice
+Bob	Lisa
+Alan	Lisa
+Alice	Lisa
+Alice	Bob
+Alan	Bob
+Lisa	Bob
+Lisa	Alice
+Lisa	Alan
 \.
 
 
