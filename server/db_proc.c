@@ -41,12 +41,11 @@ int ball_respond_relationship(char * name)
 	int ntuples, nfields;
 	PGconn * conn;
 	PGresult * result;
-	char * relations;
+	char * member_name;
+	int i;
 
 	len = snprintf(sql_buf, BALL_MAX_SQL_BUF_LEN,
-			"SELECT relationship from %s WHERE name = '%s';",
-			g_table_name,
-			name);
+			"SELECT member from relationship WHERE master = '%s';", name);
 
 	if (len == BALL_MAX_SQL_BUF_LEN)
 		return FALSE;
@@ -68,16 +67,22 @@ int ball_respond_relationship(char * name)
 	ntuples = PQntuples(result);
 	nfields = PQnfields(result);
 
-	if (ntuples != 1 || nfields != 1)
+	if (ntuples == 0)
+		return TRUE;
+
+	/* we only select one field */
+	if (nfields != 1)
 	{
-		fprintf(stderr, "tuple: %d and field: %d\n", ntuples, nfields);
+		fprintf(stderr, "field select failed: %d field\n", ntuples, nfields);
 		return FALSE;
 	}
 
-	relations = PQgetvalue(result, 0, 0);
+	for (i = 0; i < ntuples; ++i)
+	{
+		member_name = PQgetvalue(result, i, 0);
 
-	fprintf(stderr, "relations: %s\n", relations);
-	ball_pack_relationship_packet(name, relations);
+		ball_pack_relationship_packet(name, member_name);
+	}
 
 	PQclear(result);
 	PQfinish(conn);

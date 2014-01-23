@@ -123,16 +123,22 @@ gpointer ball_process_message_transfor(gpointer user_data)
 			{
 				if (ep_responds[i].events & EPOLLIN)
 				{
-					ret = client_endpoint.get_msg(client_endpoint.msg_input, &client_endpoint.input_status, client_endpoint.skfd);
-					if (ret == MSG_GET_FAILED)
+					while (1)
 					{
-						//here the skfd read failed, maybe we need a reconnection to the 
-						//server, we must deal with it
-					}
-					else if (ret == MSG_GET_FINISH)
-					{
-						list_add_tail(&client_endpoint.msg_input->next, &client_endpoint.msg_input_list);
-						client_endpoint.msg_input = initial_new_input_msg(&client_endpoint.input_status);
+						ret = client_endpoint.get_msg(client_endpoint.msg_input, &client_endpoint.input_status, client_endpoint.skfd);
+						if (ret == MSG_GET_FAILED)
+						{
+							//here the skfd read failed, maybe we need a reconnection to the 
+							//server, we must deal with it
+						}
+						else if (ret == MSG_GET_FINISH)
+						{
+							list_add_tail(&client_endpoint.msg_input->next, &client_endpoint.msg_input_list);
+							client_endpoint.msg_input = initial_new_input_msg(&client_endpoint.input_status);
+							continue;
+						}
+						
+						break;
 					}
 				}
 
@@ -280,51 +286,32 @@ void ball_test_simulate_peer_list()
 	list_add_tail(&msg->next, &message_comming);
 }
 
-LIST_HEAD(message_peer_list);
-
 int ball_main_panel_update_peer_list(struct message_packet * msg)
 {
 	struct peer_info * peer;
 	char * start, * end;
 	char * name;
-	char * more;
 	int name_len;
 	int info_len;
 	char * info;
 
-	list_add_tail(&msg->next, &message_peer_list);
+	start = msg->content + MSG_HEAD_LENGTH;
+	end = msg->content + msg->length;
 
-	more = msg->content + MSG_HEAD_LENGTH;
+	name_len = *start;
+	start += 1;
 
-	if (*more)
-		return TRUE;
+	name = start;
+	start += name_len;
 
-	while (!list_empty(&message_peer_list))
-	{
-		msg = list_first_entry(&message_peer_list, struct message_packet, next);
-		list_del(&msg->next);
+	peer = malloc(sizeof(struct peer_info));
+	memset(peer, 0, sizeof(struct peer_info));
 
-		start = msg->content + MSG_HEAD_LENGTH + 1; //one for more
-		end = msg->content + msg->length;
+	INIT_LIST_HEAD(&peer->msg_unshow);
+	strncpy(peer->name, name, name_len);
+	peer->name[name_len] = '\0';
 
-		while (start < end)
-		{
-			name_len = *start;
-			start += 1;
-
-			name = start;
-			start += name_len;
-
-			peer = malloc(sizeof(struct peer_info));
-			memset(peer, 0, sizeof(struct peer_info));
-
-			INIT_LIST_HEAD(&peer->msg_unshow);
-			strncpy(peer->name, name, name_len);
-			peer->name[name_len] = '\0';
-
-			ball_add_peer_info(ball_get_main_panel(), peer);
-		}
-	}
+	ball_add_peer_info(ball_get_main_panel(), peer);
 
 	return TRUE;
 }

@@ -172,23 +172,18 @@ struct account_info * get_account_from_db(char * name, int len)
 	return NULL;
 }
 
-/*
- * relations in the form {relation1,relation2...}, just as the output
- * from a sql query (postgresql), we need parse it
- */
-int ball_pack_relationship_packet(char * account_name, const char * relations)
+int ball_pack_relationship_packet(char * account_name, const char * member_name)
 {
-	printf("%s: %s\n", account_name, relations);
+	printf("%s: %s\n", account_name, member_name);
 
 	struct account_info * account;
 	struct message_packet * msg;
 	struct message_send_queue * output_queue;
 	int peer_skfd;
 	char * end, * last;
-	char * p, * more;
-	char * rb, * re;
-	char * name;
-	int name_len;
+	char * p;
+	char * name = member_name;
+	int name_len = strlen(member_name);
 
 	account = get_account_from_db(account_name, strlen(account_name));
 	if (!account)
@@ -197,66 +192,26 @@ int ball_pack_relationship_packet(char * account_name, const char * relations)
 	output_queue = &account->conn->output_queue;
 	peer_skfd = account->conn->skfd;
 
-	rb = relations + 1;
-	while (1)
-	{
-		msg = malloc(sizeof(struct message_packet));
-		msg->type = MSG_TYPE_PEER_LIST;
-		msg->version = 0x01;
+	msg = malloc(sizeof(struct message_packet));
+	msg->type = MSG_TYPE_PEER_LIST;
+	msg->version = 0x01;
 
-		p = msg->content;
-		end = msg->content + MAX_MESSAGE_PACKET_LEN;
+	p = msg->content;
 
-		p += MSG_HEAD_LENGTH;
+	p += MSG_HEAD_LENGTH;
 
-		/* here we reserve position for the more flag */
-		more = p;
-		p += 1;
+	*p = name_len;
+	p += 1;
 
-		last = p;
+	memcpy(p, name, name_len);
+	p += name_len;
 
-		while ((re = strchr(rb, ',')) || (re = strchr(rb, '}')))
-		{
-			name = rb;
-			name_len = re - rb;
+	msg->length = p - msg->content;
 
-			if (p >= end)
-				break;
+	message_package_head(msg);
 
-			*p = name_len;
-			p += 1;
-
-			if (p + name_len >= end)
-				break;
-
-			memcpy(p, name, name_len);
-			p += name_len;
-
-			rb = re + 1;
-			last = p;
-		}
-
-		msg->length = last - msg->content;
-
-		if (re)
-		{
-			*more = 0x01;
-		}
-		else
-		{
-			*more = 0x00;
-		}
-
-		message_package_head(msg);
-
-		list_add_tail(&msg->next, &output_queue->msg_list);
-		send_message(output_queue, peer_skfd);
-
-		if (!re)
-		{
-			break;
-		}
-	}
+	list_add_tail(&msg->next, &output_queue->msg_list);
+	send_message(output_queue, peer_skfd);
 
 	return TRUE;
 }
