@@ -26,6 +26,12 @@ enum {
 	MSG_TYPE_LOGIN,
 	MSG_TYPE_CHART,
 	MSG_TYPE_PEER_LIST,
+	MSG_TYPE_LOGIN_RESPOND,
+};
+
+enum {
+	BALL_LOGIN_FAILED,
+	BALL_LOGIN_SUCCESS,
 };
 
 struct message_packet {

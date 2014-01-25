@@ -26,6 +26,8 @@
 
 #define PASSWD_DEFAULT "123456"
 
+LIST_HEAD(ball_peer_info_set);
+
 struct message_endpoint {
 	int skfd;
 
@@ -43,7 +45,20 @@ GMutex mutex_for_message_need_sended;
 LIST_HEAD(message_comming);
 GMutex mutex_for_message_comming;
 
-LIST_HEAD(ball_peer_info_set);
+enum {
+	BALL_COMM_INACTIVE,
+	BALL_COMM_ACTIVE,
+};
+
+int ball_transfor_active_flag = BALL_COMM_INACTIVE;
+
+void ball_destroy_endpoint(struct message_endpoint * endpoint)
+{
+	close(endpoint->skfd);
+
+	if (endpoint->msg_input)
+		free(endpoint->msg_input);
+}
 
 gpointer ball_process_message_transfor(gpointer user_data)
 {
@@ -55,7 +70,7 @@ gpointer ball_process_message_transfor(gpointer user_data)
 	int client_fd, epfd;
 	int ret;
 	int flag;
-	int i;
+	int i, total;
 
 	epfd = epoll_create(1);
 
@@ -77,7 +92,7 @@ gpointer ball_process_message_transfor(gpointer user_data)
 	if (ret == -1)
 	{
 		fprintf(stderr, "connect failed %s\n", strerror(errno));
-		exit(0);
+		return (void *)0;
 	}
 
 	flag = fcntl(client_fd, F_GETFL);
@@ -90,8 +105,13 @@ gpointer ball_process_message_transfor(gpointer user_data)
 
 	client_endpoint.skfd = client_fd;
 
+	ball_transfor_active_flag = BALL_COMM_ACTIVE; 
+
 	while (1)
 	{
+		if (ball_transfor_active_flag == BALL_COMM_INACTIVE)
+			break;
+
 		//first we should check wether there are new messages
 		//need to be sended, and send it
 		if (!list_empty(&message_need_sended))
@@ -110,16 +130,16 @@ gpointer ball_process_message_transfor(gpointer user_data)
 			printf("epoll wait come to error");
 			if (errno == EINTR)
 				continue;
-			else
-				raise(SIGTERM);
+
+			goto out;
 		}
 
 		if (ret == 0)
 			continue;
 
-		for (i = 0; i < ret; ++i)
+		for (i = 0, total = ret; i < total; ++i)
 		{
-			if (ep_responds[i].data.fd == client_fd)
+			if (ep_responds[i].data.fd == client_endpoint.skfd)
 			{
 				if (ep_responds[i].events & EPOLLIN)
 				{
@@ -130,6 +150,7 @@ gpointer ball_process_message_transfor(gpointer user_data)
 						{
 							//here the skfd read failed, maybe we need a reconnection to the 
 							//server, we must deal with it
+							ball_transfor_active_flag = BALL_COMM_INACTIVE;
 						}
 						else if (ret == MSG_GET_FINISH)
 						{
@@ -149,6 +170,7 @@ gpointer ball_process_message_transfor(gpointer user_data)
 					{
 						//here the skfd just write failed, maybe the connection is
 						//broken, we need deal with it
+						ball_transfor_active_flag = BALL_COMM_INACTIVE;
 					}
 				}
 			}
@@ -163,7 +185,15 @@ gpointer ball_process_message_transfor(gpointer user_data)
 		}
 	}
 
-	return 0;
+out:
+
+	/* here we should destroy the communication datas */
+
+	ball_destroy_endpoint(&client_endpoint);
+
+	close(epfd);
+
+	return (void *)0;
 }
 
 static char * g_login_name;
@@ -217,6 +247,7 @@ int ball_chart_panel_update_message(struct message_packet * msg)
 	return FALSE;
 }
 
+#if 0
 void ball_test_simulate_peer_list()
 {
 	static char * members[] = {
@@ -285,24 +316,48 @@ void ball_test_simulate_peer_list()
 
 	list_add_tail(&msg->next, &message_comming);
 }
+#endif
+
+int ball_msg_proc_login_respond(struct message_packet * msg)
+{
+	int respond;
+	char * p = MESSAGE_BODY(msg);
+
+	respond = ntohl(*(int *)p);
+
+	switch (respond)
+	{
+		case BALL_LOGIN_FAILED:
+			ball_transfor_active_flag = BALL_COMM_INACTIVE;
+			break;
+
+		case BALL_LOGIN_SUCCESS:
+			ball_transfor_active_flag = BALL_COMM_ACTIVE;
+			break;
+
+		default:
+			break;
+	}
+
+	free(msg);
+
+	return TRUE;
+}
 
 int ball_main_panel_update_peer_list(struct message_packet * msg)
 {
 	struct peer_info * peer;
-	char * start, * end;
+	char * p;
 	char * name;
 	int name_len;
-	int info_len;
-	char * info;
 
-	start = msg->content + MSG_HEAD_LENGTH;
-	end = msg->content + msg->length;
+	p = MESSAGE_BODY(msg);
 
-	name_len = *start;
-	start += 1;
+	name_len = *p;
+	p += 1;
 
-	name = start;
-	start += name_len;
+	name = p;
+	p += name_len;
 
 	peer = malloc(sizeof(struct peer_info));
 	memset(peer, 0, sizeof(struct peer_info));
@@ -312,6 +367,8 @@ int ball_main_panel_update_peer_list(struct message_packet * msg)
 	peer->name[name_len] = '\0';
 
 	ball_add_peer_info(ball_get_main_panel(), peer);
+
+	free(msg);
 
 	return TRUE;
 }
@@ -323,69 +380,41 @@ gboolean ball_process_comming_message(gpointer user_data)
 
 	LIST_HEAD(message_wait_proc);
 
-	if (list_empty(&message_comming))
-		return TRUE;
-
-	g_mutex_lock(&mutex_for_message_comming);
-
-	list_splice_tail_init(&message_comming, &message_wait_proc);
-
-	g_mutex_unlock(&mutex_for_message_comming);
-
-	while (!list_empty(&message_wait_proc))
+	while (1)
 	{
-		msg = list_first_entry(&message_wait_proc, struct message_packet, next);
-		list_del(&msg->next);
+		if (list_empty(&message_comming))
+			return TRUE;
 
-		switch (msg->type)
+		g_mutex_lock(&mutex_for_message_comming);
+		list_splice_tail_init(&message_comming, &message_wait_proc);
+		g_mutex_unlock(&mutex_for_message_comming);
+
+		while (!list_empty(&message_wait_proc))
 		{
-			case MSG_TYPE_CHART:
-				ret = ball_chart_panel_update_message(msg);
-				break;
-			case MSG_TYPE_PEER_LIST:
-				ret = ball_main_panel_update_peer_list(msg);
-				break;
-			default:
-				ret = FALSE;
-				break;
+			msg = list_first_entry(&message_wait_proc, struct message_packet, next);
+			list_del(&msg->next);
+
+			switch (msg->type)
+			{
+				case MSG_TYPE_CHART:
+					ret = ball_chart_panel_update_message(msg);
+					break;
+				case MSG_TYPE_PEER_LIST:
+					ret = ball_main_panel_update_peer_list(msg);
+					break;
+				case MSG_TYPE_LOGIN_RESPOND:
+					ret = ball_msg_proc_login_respond(msg);
+					break;
+				default:
+					ret = FALSE;
+					break;
+			}
+
+			if (ret == FALSE)
+				free(msg);
 		}
-
-		if (ret == FALSE)
-			free(msg);
 	}
-
-	return TRUE;
 }
-
-#if 0
-int main(int ac, char ** av)
-{
-	BallChartPanel * chart_panel;
-	GtkWidget * window;
-
-	gtk_init(&ac, &av);
-
-	if (ac != 2)
-		return 0;
-
-	window = ball_chart_panel_new();
-
-	//here just for monitor login
-	chart_panel = BALL_CHART_PANEL(window);
-	chart_panel->my_name = strdup(av[1]);
-	chart_panel->my_name_len = strlen(chart_panel->my_name);
-	gtk_window_set_title(GTK_WINDOW(window), chart_panel->my_name);
-	ball_chart_panel_process_login(chart_panel);
-
-	gtk_widget_show_all(window);
-
-	//g_timeout_add_seconds(1, ball_chart_moniter_message_comming, NULL);
-
-	gtk_main();
-
-	return 0;
-}
-#endif
 
 int main(int ac, char ** av)
 {
