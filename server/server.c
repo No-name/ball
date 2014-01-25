@@ -244,8 +244,30 @@ int ball_pack_relationship_packet(char * account_name, const char * member_name)
 	return TRUE;
 }
 
+void ball_respond_login_msg(struct peer_info * peer, int status)
+{
+	struct message_packet * msg;
+	char * p;
+
+	msg = malloc(sizeof(struct message_packet));
+	msg->type = MSG_TYPE_LOGIN_RESPOND;
+	msg->version = 0x01;
+
+	p = MESSAGE_BODY(msg);
+
+	*(int *)p = htonl(status);
+	p += 4;
+
+	msg->length = p - msg->content;
+	message_package_head(msg);
+
+	list_add_tail(&msg->next, &peer->output_queue.msg_list);
+	send_message(&peer->output_queue, peer->skfd);
+}
+
 void message_proc_login(struct message_packet * msg, struct peer_info * peer)
 {
+	int ret;
 	struct account_info * account;
 	char * p = MESSAGE_BODY(msg);
 	char * name, * passwd;
@@ -264,6 +286,12 @@ void message_proc_login(struct message_packet * msg, struct peer_info * peer)
 	passwd = p;
 
 	/* then we process the message */
+	ret = ball_db_check_login(name, name_len, passwd, passwd_len);
+	ball_respond_login_msg(peer, ret);
+
+	if (ret != BALL_LOGIN_SUCCESS)
+		return;
+
 	account = malloc(sizeof(struct account_info));
 	memcpy(account->name, name, name_len);
 	account->name[name_len] = '\0';

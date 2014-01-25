@@ -32,8 +32,9 @@ void ball_process_login(GtkWidget * button, BallLoginPanel * login_panel)
 	if (!(name_len && passwd_len))
 		return;
 
-	msg = malloc(sizeof(struct message_packet));
+	ball_start_transfor_routine();
 
+	msg = malloc(sizeof(struct message_packet));
 	msg->type = MSG_TYPE_LOGIN;
 	msg->version = 0x01;
 
@@ -50,14 +51,7 @@ void ball_process_login(GtkWidget * button, BallLoginPanel * login_panel)
 	g_mutex_unlock(&mutex_for_message_need_sended);
 
 	ball_set_myself_name(name);
-
-	window = ball_main_panel_new();
-	gtk_widget_show_all(window);
-	gtk_window_set_title(GTK_WINDOW(window), name);
-
-	ball_set_main_panel(BALL_MAIN_PANEL(window));
-
-	gtk_widget_destroy(GTK_WIDGET(login_panel));
+	ball_set_login_panel(login_panel);
 }
 
 void ball_login_panel_init(BallLoginPanel * login_panel, BallLoginPanelClass * login_panel_class)

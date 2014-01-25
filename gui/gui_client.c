@@ -50,7 +50,13 @@ enum {
 	BALL_COMM_ACTIVE,
 };
 
-int ball_transfor_active_flag = BALL_COMM_INACTIVE;
+enum {
+	BALL_TRANSFOR_INACTIVE,
+	BALL_TRANSFOR_INIT,
+	BALL_TRANSFOR_LOGIN,
+};
+
+int ball_transfor_active_flag = BALL_TRANSFOR_INACTIVE;
 
 void ball_destroy_endpoint(struct message_endpoint * endpoint)
 {
@@ -92,6 +98,8 @@ gpointer ball_process_message_transfor(gpointer user_data)
 	if (ret == -1)
 	{
 		fprintf(stderr, "connect failed %s\n", strerror(errno));
+		ball_transfor_active_flag = BALL_TRANSFOR_INACTIVE;
+
 		return (void *)0;
 	}
 
@@ -105,11 +113,9 @@ gpointer ball_process_message_transfor(gpointer user_data)
 
 	client_endpoint.skfd = client_fd;
 
-	ball_transfor_active_flag = BALL_COMM_ACTIVE; 
-
 	while (1)
 	{
-		if (ball_transfor_active_flag == BALL_COMM_INACTIVE)
+		if (ball_transfor_active_flag == BALL_TRANSFOR_INACTIVE)
 			break;
 
 		//first we should check wether there are new messages
@@ -150,7 +156,7 @@ gpointer ball_process_message_transfor(gpointer user_data)
 						{
 							//here the skfd read failed, maybe we need a reconnection to the 
 							//server, we must deal with it
-							ball_transfor_active_flag = BALL_COMM_INACTIVE;
+							ball_transfor_active_flag = BALL_TRANSFOR_INACTIVE;
 						}
 						else if (ret == MSG_GET_FINISH)
 						{
@@ -170,7 +176,7 @@ gpointer ball_process_message_transfor(gpointer user_data)
 					{
 						//here the skfd just write failed, maybe the connection is
 						//broken, we need deal with it
-						ball_transfor_active_flag = BALL_COMM_INACTIVE;
+						ball_transfor_active_flag = BALL_TRANSFOR_INACTIVE;
 					}
 				}
 			}
@@ -196,9 +202,21 @@ out:
 	return (void *)0;
 }
 
+void ball_start_transfor_routine()
+{
+	if (ball_transfor_active_flag == BALL_TRANSFOR_INACTIVE)
+	{
+		ball_transfor_active_flag = BALL_TRANSFOR_INIT; 
+		g_thread_new("message_proc", ball_process_message_transfor, NULL);
+	}
+}
+
+
 static char * g_login_name;
 
 static BallMainPanel * g_main_panel;
+
+static BallLoginPanel * g_login_panel;
 
 char * ball_get_myself_name()
 {
@@ -218,6 +236,16 @@ BallMainPanel * ball_get_main_panel()
 void ball_set_main_panel(BallMainPanel * panel)
 {
 	g_main_panel = panel;
+}
+
+BallLoginPanel * ball_get_login_panel()
+{
+	return g_login_panel;
+}
+
+void ball_set_login_panel(BallLoginPanel * panel)
+{
+	g_login_panel = panel;
 }
 
 int ball_chart_panel_update_message(struct message_packet * msg)
@@ -318,6 +346,19 @@ void ball_test_simulate_peer_list()
 }
 #endif
 
+int ball_show_main_panel()
+{
+	GtkWidget * window;
+
+	window = ball_main_panel_new();
+	gtk_widget_show_all(window);
+	gtk_window_set_title(GTK_WINDOW(window), ball_get_myself_name());
+
+	ball_set_main_panel(BALL_MAIN_PANEL(window));
+
+	gtk_widget_destroy(GTK_WIDGET(ball_get_login_panel()));
+}
+
 int ball_msg_proc_login_respond(struct message_packet * msg)
 {
 	int respond;
@@ -325,18 +366,14 @@ int ball_msg_proc_login_respond(struct message_packet * msg)
 
 	respond = ntohl(*(int *)p);
 
-	switch (respond)
+	if (respond == BALL_LOGIN_SUCCESS)
 	{
-		case BALL_LOGIN_FAILED:
-			ball_transfor_active_flag = BALL_COMM_INACTIVE;
-			break;
-
-		case BALL_LOGIN_SUCCESS:
-			ball_transfor_active_flag = BALL_COMM_ACTIVE;
-			break;
-
-		default:
-			break;
+		ball_transfor_active_flag = BALL_TRANSFOR_LOGIN;
+		ball_show_main_panel();
+	}
+	else
+	{
+		ball_transfor_active_flag = BALL_TRANSFOR_INACTIVE;
 	}
 
 	free(msg);
@@ -426,7 +463,6 @@ int main(int ac, char ** av)
 
 	gtk_widget_show_all(window);
 
-	g_thread_new("message_proc", ball_process_message_transfor, NULL);
 	g_timeout_add_seconds(1, ball_process_comming_message, window);
 
 	gtk_main();
