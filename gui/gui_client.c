@@ -19,6 +19,9 @@
 
 #include "gui_client.h"
 
+char * ball_get_myself_name();
+char * ball_get_myself_passwd();
+
 #define SERVER_IP "127.0.0.1"
 #define SERVER_PORT 25678
 
@@ -204,15 +207,55 @@ out:
 
 void ball_start_transfor_routine()
 {
-	if (ball_transfor_active_flag == BALL_TRANSFOR_INACTIVE)
-	{
-		ball_transfor_active_flag = BALL_TRANSFOR_INIT; 
-		g_thread_new("message_proc", ball_process_message_transfor, NULL);
-	}
+	struct message_packet * msg;
+	char * name, * passwd;
+	int name_len, passwd_len;
+	char * p;
+
+	if (ball_transfor_active_flag != BALL_TRANSFOR_INACTIVE)
+		return;
+
+	/* when ever we start a transfor thread, we need also relogin */
+
+	ball_transfor_active_flag = BALL_TRANSFOR_INIT; 
+	g_thread_new("message_proc", ball_process_message_transfor, NULL);
+
+	name = ball_get_myself_name();
+	name_len = strlen(name);
+
+	passwd = ball_get_myself_passwd();
+	passwd_len = strlen(passwd);
+
+	msg = malloc(sizeof(struct message_packet));
+	msg->type = MSG_TYPE_LOGIN;
+	msg->version = 0x01;
+
+	p = MESSAGE_BODY(msg);
+
+	*p = name_len;
+	p += 1;
+
+	memcpy(p, name, name_len);
+	p += name_len;
+
+	*p = passwd_len;
+	p += 1;
+
+	memcpy(p, passwd, passwd_len);
+	p += passwd_len;
+
+	msg->length = p - msg->content;
+
+	message_package_head(msg);
+
+	g_mutex_lock(&mutex_for_message_need_sended);
+	list_add_tail(&msg->next, &message_need_sended);
+	g_mutex_unlock(&mutex_for_message_need_sended);
 }
 
-
 static char * g_login_name;
+
+static char * g_login_passwd;
 
 static BallMainPanel * g_main_panel;
 
@@ -226,6 +269,16 @@ char * ball_get_myself_name()
 void ball_set_myself_name(char * name)
 {
 	g_login_name = strdup(name);
+}
+
+char * ball_get_myself_passwd()
+{
+	return g_login_passwd;
+}
+
+void ball_set_myself_passwd(char * passwd)
+{
+	g_login_passwd = strdup(passwd);
 }
 
 BallMainPanel * ball_get_main_panel()
@@ -346,9 +399,12 @@ void ball_test_simulate_peer_list()
 }
 #endif
 
-int ball_show_main_panel()
+void ball_show_main_panel()
 {
 	GtkWidget * window;
+
+	if (ball_get_main_panel())
+		return;
 
 	window = ball_main_panel_new();
 	gtk_widget_show_all(window);

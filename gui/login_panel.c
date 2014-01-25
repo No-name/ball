@@ -8,50 +8,29 @@
 
 #include "gui_client.h"
 
-extern struct list_head message_need_sended;
-extern GMutex mutex_for_message_need_sended;
-
-extern struct list_head message_comming;
-extern GMutex mutex_for_message_comming;
-
 void ball_process_login(GtkWidget * button, BallLoginPanel * login_panel)
 {
-	GtkWidget * window;
-
-	struct message_packet * msg;
-
-	int name_len, passwd_len;
-	gchar * name, * passwd;
+	int name_len, passwd_plain_len, passwd_md5_len;
+	char * name, * passwd_plain, passwd_md5;
 
 	name = gtk_entry_get_text(GTK_ENTRY(login_panel->entry_name));
 	name_len = strlen(name);
 
-	passwd = gtk_entry_get_text(GTK_ENTRY(login_panel->entry_passwd));
-	passwd_len = strlen(passwd);
+	passwd_plain = gtk_entry_get_text(GTK_ENTRY(login_panel->entry_passwd));
+	passwd_plain_len = strlen(passwd_plain);
 
-	if (!(name_len && passwd_len))
+	if (!(name_len && passwd_plain_len))
 		return;
 
-	ball_start_transfor_routine();
-
-	msg = malloc(sizeof(struct message_packet));
-	msg->type = MSG_TYPE_LOGIN;
-	msg->version = 0x01;
-
-	msg->login_info.name_len = name_len;
-	msg->login_info.name = name;
-
-	msg->login_info.passwd_len = passwd_len;
-	msg->login_info.passwd = passwd;
-
-	package_message(msg);
-
-	g_mutex_lock(&mutex_for_message_need_sended);
-	list_add_tail(&msg->next, &message_need_sended);
-	g_mutex_unlock(&mutex_for_message_need_sended);
+	passwd_md5 = g_compute_checksum_for_string(G_CHECKSUM_MD5, passwd_plain, passwd_plain_len);
 
 	ball_set_myself_name(name);
+	ball_set_myself_passwd(passwd_md5);
 	ball_set_login_panel(login_panel);
+
+	g_free(passwd_md5);
+
+	ball_start_transfor_routine();
 }
 
 void ball_login_panel_init(BallLoginPanel * login_panel, BallLoginPanelClass * login_panel_class)

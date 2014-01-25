@@ -28,6 +28,34 @@ struct _BallLoginPanelClass
 
 extern GtkWidget * ball_login_panel_new();
 
+/********** FOLLOW DEFINE THE REGISTER PANEL ***************/
+#define BALL_TYPE_REGISTER_PANEL (ball_register_panel_get_type())
+#define BALL_REGISTER_PANEL(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), BALL_TYPE_REGISTER_PANEL, BallRegisterPanel))
+#define BALL_IS_REGISTER_PANEL(obj) (G_TYPE_CHECK_INSTANCE_TYPE((obj), BALL_TYPE_REGISTER_PANEL))
+#define BALL_REGISTER_PANEL_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST((klass), BALL_TYPE_REGISTER_PANEL, BallRegisterPanelClass))
+#define BALL_IS_REGISTER_PANEL_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), BALL_TYPE_REGISTER_PANEL))
+#define BALL_REGISTER_PANEL_GET_CLASS(obj) (G_TYPE_INSTANCE_GET_CLASS((obj), BALL_TYPE_REGISTER_PANEL, BallRegisterPanelClass))
+
+typedef struct _BallRegisterPanel BallRegisterPanel;
+typedef struct _BallRegisterPanelClass BallRegisterPanelClass;
+
+struct _BallRegisterPanel
+{
+	GtkWindow parent;
+
+	GtkWidget * label_name, * label_passwd, * label_passwd_again;
+	GtkWidget * entry_name, * entry_passwd, * entry_passwd_again;
+
+	GtkWidget * button_register, * button_cancel;
+};
+
+struct _BallRegisterPanelClass
+{
+	GtkWindowClass parent;
+};
+
+extern GtkWidget * ball_register_panel_new();
+
 /********** FOLLOW DEFINE THE CHART PANEL ***************/
 
 #define BALL_TYPE_CHART_PANEL (ball_chart_panel_get_type())
