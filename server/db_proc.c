@@ -70,13 +70,6 @@ int ball_respond_relationship(char * name)
 	if (ntuples == 0)
 		return TRUE;
 
-	/* we only select one field */
-	if (nfields != 1)
-	{
-		fprintf(stderr, "field select failed: %d field\n", ntuples, nfields);
-		return FALSE;
-	}
-
 	for (i = 0; i < ntuples; ++i)
 	{
 		member_name = PQgetvalue(result, i, 0);

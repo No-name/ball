@@ -41,6 +41,7 @@ struct account_info {
 struct peer_info {
 	struct list_head next;
 	time_t time_last;
+
 	int skfd;
 	char addr_str[MAX_CLIENT_ADDR_BUF];
 	struct sockaddr_in addr;
@@ -49,13 +50,9 @@ struct peer_info {
 
 	struct message_packet * msg_input;
 	struct msg_status input_status;
-
-	//obsolete
-	struct list_head msg_output_list;
-	struct msg_status output_status;
-	int (*put_msg)(struct msg_status * status, int skfd);
-
 	int (*get_msg)(struct message_packet * msg, struct msg_status * status, int skfd);
+
+	struct account_info * account;
 };
 
 int get_message(struct message_packet * msg, struct msg_status * status, int fd);
@@ -79,6 +76,29 @@ void init_routine()
 	init_account_info_hash_table();
 }
 
+void destroy_peer_info(struct peer_info * peer)
+{
+	struct account_info * account;
+
+	close(peer->skfd);
+	list_del(&peer->next);
+	peer_info_pool[peer->skfd] = NULL;
+	epoll_ctl(epfd, EPOLL_CTL_DEL, peer->skfd, NULL);
+
+	if ((account = peer->account))
+	{
+		account->conn = NULL;
+		account_remove_from_db(account);
+	}
+
+	free(peer->msg_input);
+
+	//clear the output msg packets
+	//also if the account have login, remove the account from db
+	
+	free(peer);
+}
+
 void clear_outtime_peer()
 {
 	struct peer_info * peer;
@@ -92,15 +112,8 @@ void clear_outtime_peer()
 		{
 			printf("I clean the fd from %s\n", peer->addr_str);
 
-			list_del(&peer->next);
 
-			peer_info_pool[peer->skfd] = NULL;
-
-			epoll_ctl(epfd, EPOLL_CTL_DEL, peer->skfd, NULL);
-
-			close(peer->skfd);
-
-			free(peer);
+			destroy_peer_info(peer);
 
 			continue;
 		}
@@ -111,7 +124,6 @@ void clear_outtime_peer()
 
 void sig_hand_alarm(int sig)
 {
-	printf("I am timeout\n");
 	check_timeout = 1;
 }
 
@@ -140,25 +152,44 @@ void init_account_info_hash_table()
 	assert(gpstAccountInfoHashTable && "Account hash table alloc failed\n");
 }
 
-void add_account_info_to_db(struct account_info * account)
+void account_remove_from_db(struct account_info * account)
 {
+	struct peer_info * peer;
+
+	/* we should notify other the account has gone */
+
+	hlist_del(&account->hnext);
+
+	if ((peer = account->conn))
+	{
+		peer->account = NULL;
+		destroy_peer_info(peer);
+	}
+
+	free(account);
+}
+
+void account_add_into_db(struct account_info * account)
+{
+	int hash;
 	struct hlist_head * hslot;
 
-	int hash = account_name_hash(account->name, account->name_len);
-
+	hash = account_name_hash(account->name, account->name_len);
 	hslot = gpstAccountInfoHashTable + hash;
 
 	hlist_add_head(&account->hnext, hslot);
+
+	/* we should notify other the account login */
 }
 
-struct account_info * get_account_from_db(char * name, int len)
+struct account_info * account_get_from_db(char * name, int len)
 {
 	struct hlist_head * hslot;
 	struct hlist_node * hnode;
 	struct account_info * account;
+	int hash;
 
-	int hash = account_name_hash(name, len);
-
+	hash = account_name_hash(name, len);
 	hslot = gpstAccountInfoHashTable + hash;
 
 	hlist_for_each_entry(account, hnode, hslot, hnext)
@@ -174,18 +205,15 @@ struct account_info * get_account_from_db(char * name, int len)
 
 int ball_pack_relationship_packet(char * account_name, const char * member_name)
 {
-	printf("%s: %s\n", account_name, member_name);
-
 	struct account_info * account;
 	struct message_packet * msg;
 	struct message_send_queue * output_queue;
 	int peer_skfd;
-	char * end, * last;
 	char * p;
-	char * name = member_name;
+	const char * name = member_name;
 	int name_len = strlen(member_name);
 
-	account = get_account_from_db(account_name, strlen(account_name));
+	account = account_get_from_db(account_name, strlen(account_name));
 	if (!account)
 		return FALSE;
 
@@ -216,6 +244,42 @@ int ball_pack_relationship_packet(char * account_name, const char * member_name)
 	return TRUE;
 }
 
+void message_proc_login(struct message_packet * msg, struct peer_info * peer)
+{
+	struct account_info * account;
+	char * p = MESSAGE_BODY(msg);
+	char * name, * passwd;
+	int name_len, passwd_len;
+
+	/* first parse the message */
+	name_len = *p;
+	p += 1;
+
+	name = p;
+	p += name_len;
+
+	passwd_len = *p;
+	p += 1;
+
+	passwd = p;
+
+	/* then we process the message */
+	account = malloc(sizeof(struct account_info));
+	memcpy(account->name, name, name_len);
+	account->name[name_len] = '\0';
+	account->name_len = name_len;
+
+	/* each should know the others */
+	account->conn = peer;
+	peer->account = account;
+
+	/* info the other routine we online */
+	account_add_into_db(account);
+
+	/* respond with the member list */
+	ball_respond_relationship(account->name);
+}
+
 void process_message(struct message_packet * msg, struct peer_info * peer)
 {
 	struct account_info * account;
@@ -225,22 +289,12 @@ void process_message(struct message_packet * msg, struct peer_info * peer)
 	switch (msg->type)
 	{
 		case MSG_TYPE_LOGIN:
-			account = malloc(sizeof(struct account_info));
-			memcpy(account->name, msg->login_info.name, msg->login_info.name_len);
-			account->name_len = msg->login_info.name_len;
-			account->name[account->name_len] = '\0';
-			account->conn = peer;
-
-			add_account_info_to_db(account);
-
+			message_proc_login(msg, peer);
 			free(msg);
-
-			ball_respond_relationship(account->name);
-			//ball_pack_relationship_packet(account->name, "{Lary,Alice}");
 
 			break;
 		case MSG_TYPE_CHART:
-			account = get_account_from_db(msg->chart_info.to, msg->chart_info.to_len);
+			account = account_get_from_db(msg->chart_info.to, msg->chart_info.to_len);
 			if (!account)
 			{
 				free(msg);
@@ -257,15 +311,6 @@ void process_message(struct message_packet * msg, struct peer_info * peer)
 			free(msg);
 			return;
 	}
-}
-
-void destroy_peer_info(struct peer_info * peer)
-{
-	free(peer->msg_input);
-
-	//clear the output msg packets
-	
-	free(peer);
 }
 
 int main()
@@ -340,7 +385,6 @@ int main()
 		ret = epoll_wait(epfd, ep_responds, MAX_EPOLL_EVENT, -1);
 		if (ret == -1)
 		{
-			printf("epoll_wait error (%d) %s\n", errno, strerror(errno));
 			if (errno == EINTR)
 				continue;
 			else
@@ -415,31 +459,33 @@ int main()
 				{
 					printf("Client with POLLIN event\n");
 
-					ret = peer->get_msg(peer->msg_input, &peer->input_status, peer->skfd);
-					if (ret == MSG_GET_FAILED)
+					while (1)
 					{
-						printf("Get message failed\n");
-						epoll_ctl(epfd, EPOLL_CTL_DEL, client_fd, NULL);
-						list_del(&peer->next);
-						close(peer->skfd);
-						peer_info_pool[client_fd] = NULL;
-
-						destroy_peer_info(peer);
-
-						printf("Successfully process the failed state\n");
-					}
-					else
-					{
-						list_del(&peer->next);
-						peer->time_last = time(NULL);
-						list_add_tail(&peer->next, &timeout_list);
-
-						if (ret == MSG_GET_FINISH)
+						ret = peer->get_msg(peer->msg_input, &peer->input_status, peer->skfd);
+						if (ret == MSG_GET_FAILED)
 						{
-							process_message(peer->msg_input, peer);
+							printf("Get message failed\n");
 
-							peer->msg_input = initial_new_input_msg(&peer->input_status);
+							destroy_peer_info(peer);
+
+							printf("Successfully process the failed state\n");
 						}
+						else
+						{
+							list_del(&peer->next);
+							peer->time_last = time(NULL);
+							list_add_tail(&peer->next, &timeout_list);
+
+							if (ret == MSG_GET_FINISH)
+							{
+								process_message(peer->msg_input, peer);
+
+								peer->msg_input = initial_new_input_msg(&peer->input_status);
+								continue;
+							}
+						}
+
+						break;
 					}
 				}
 
@@ -456,43 +502,3 @@ int main()
 		sigprocmask(SIG_SETMASK, &sig_orig, NULL);
 	}
 }
-
-#if 0
-void send_message(struct peer_info * peer)
-{
-	int ret = MSG_SEND_FINISH;
-	struct message_packet * msg;
-
-	msg = list_first_entry(&peer->msg_output_list, struct message_packet, next);
-
-	while (1)
-	{
-		if (peer->output_status.left)
-		{
-			ret = peer->put_msg(&peer->output_status, peer->skfd);
-			if (ret == MSG_SEND_FINISH)
-			{
-				list_del(&msg->next);
-				free(msg);
-			}
-			else if (ret == MSG_SEND_AGAIN)
-			{
-				return;
-			}
-			else
-			{
-				//there the peer is gone, just remove the peer
-				return;
-			}
-		}
-
-		if (list_empty(&peer->msg_output_list))
-			break;
-
-		msg = list_first_entry(&peer->msg_output_list, struct message_packet, next);
-
-		peer->output_status.position = msg->content;
-		peer->output_status.left = msg->length;
-	}
-}
-#endif

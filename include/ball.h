@@ -63,6 +63,8 @@ struct message_packet {
 	char content[MAX_MESSAGE_PACKET_LEN];
 };
 
+#define MESSAGE_BODY(msg) ((msg)->content + MSG_HEAD_LENGTH)
+
 struct msg_status {
 	char * position;
 	int phase;
@@ -76,6 +78,7 @@ struct message_send_queue {
 };
 
 extern void package_message(struct message_packet * msg);
+extern void message_package_head(struct message_packet * msg);
 extern int put_message(struct msg_status * status, int fd);
 extern int get_message(struct message_packet * msg, struct msg_status * status, int fd);
 
