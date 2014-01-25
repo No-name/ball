@@ -11,7 +11,7 @@
 void ball_process_login(GtkWidget * button, BallLoginPanel * login_panel)
 {
 	int name_len, passwd_plain_len, passwd_md5_len;
-	char * name, * passwd_plain, passwd_md5;
+	char * name, * passwd_plain, * passwd_md5;
 
 	name = gtk_entry_get_text(GTK_ENTRY(login_panel->entry_name));
 	name_len = strlen(name);
