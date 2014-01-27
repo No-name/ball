@@ -117,6 +117,15 @@ struct _BallMainPanel
 	GtkCellRenderer * name_renderer;
 	GtkWidget * peer_list_view;
 	GtkWidget * peer_scrolled_view;
+
+	GtkWidget * button_conn;
+	GtkWidget * label_conn;
+	GtkWidget * label_connect;
+	GtkWidget * label_disconnect;
+	GtkWidget * image_connect;
+	GtkWidget * image_disconnect;
+
+	int conn_status;
 };
 
 struct _BallMainPanelClass
@@ -138,5 +147,11 @@ struct peer_info {
 };
 
 extern char * ball_get_myself_name();
+
+enum {
+	BALL_TRANSFOR_INACTIVE,
+	BALL_TRANSFOR_INIT,
+	BALL_TRANSFOR_LOGIN,
+};
 
 #endif

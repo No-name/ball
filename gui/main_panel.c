@@ -31,6 +31,22 @@ void ball_present_undeliver_message(struct peer_info * peer)
 	}
 }
 
+int ball_peer_info_check_exist(char * name, int name_len)
+{
+	struct peer_info * peer;
+
+	list_for_each_entry(peer, &ball_peer_info_set, next)
+	{
+		if (strlen(peer->name) != name_len)
+			continue;
+
+		if (!strncmp(peer->name, name, name_len))
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
 void ball_peer_info_set_chart_panel(char * name, BallChartPanel * chart_panel)
 {
 	struct peer_info * peer;
@@ -58,6 +74,53 @@ void ball_peer_info_unset_chart_panel(char * name)
 			return;
 		}
 	}
+}
+
+void ball_main_panel_swap_conn_status(BallMainPanel * main_panel)
+{
+	if (main_panel->conn_status)
+	{
+		gtk_widget_hide(main_panel->label_connect);
+		gtk_widget_hide(main_panel->image_connect);
+
+		gtk_widget_show(main_panel->label_disconnect);
+		gtk_widget_show(main_panel->image_disconnect);
+
+		gtk_button_set_label(GTK_BUTTON(main_panel->button_conn), "Connect");
+
+		main_panel->conn_status = FALSE;
+	}
+	else
+	{
+		gtk_widget_hide(main_panel->label_disconnect);
+		gtk_widget_hide(main_panel->image_disconnect);
+
+		gtk_widget_show(main_panel->label_connect);
+		gtk_widget_show(main_panel->image_connect);
+
+		gtk_button_set_label(GTK_BUTTON(main_panel->button_conn), "Disonnect");
+		main_panel->conn_status = TRUE;
+	}
+}
+
+extern int ball_transfor_active_flag;
+
+void ball_main_panel_responed_conn_button(GtkWidget * button, BallMainPanel * main_panel)
+{
+	if (main_panel->conn_status && ball_transfor_active_flag != BALL_TRANSFOR_INACTIVE)
+	{
+		ball_transfor_active_flag = BALL_TRANSFOR_INACTIVE;
+	}
+	else if (main_panel->conn_status == FALSE && ball_transfor_active_flag == BALL_TRANSFOR_INACTIVE)
+	{
+		ball_start_transfor_routine();
+	}
+	else
+	{
+		return;
+	}
+
+	ball_main_panel_swap_conn_status(main_panel);
 }
 
 gboolean ball_check_main_panel_close(GtkWidget * window, GdkEvent * event, gpointer user_data)
@@ -126,26 +189,54 @@ void ball_main_panel_responed_row_activated(GtkTreeView * tree, GtkTreePath * pa
 void ball_main_panel_init(BallMainPanel * main_panel, BallMainPanelClass * main_panel_class)
 {
 	GtkTreeIter iter;
+	GtkWidget * hbox_status;
+	GtkWidget * vbox_main;
 	GtkWidget * window = GTK_WIDGET(main_panel);
 
 	gtk_window_set_title(GTK_WINDOW(window), "Nice Day");
 	gtk_widget_set_size_request(window, 350, 800);
+	gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
 	gtk_container_set_border_width(GTK_CONTAINER(window), 5);
 	g_signal_connect(window, "delete-event", G_CALLBACK(ball_check_main_panel_close), NULL);
 	g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
-
-	main_panel->peer_scrolled_view = gtk_scrolled_window_new(NULL, NULL);
-	gtk_container_add(GTK_CONTAINER(window), main_panel->peer_scrolled_view);
 
 	main_panel->peer_list_store = gtk_list_store_new(PEER_INFO_MAX, peer_info_type[PEER_INFO_NAME]);
 
 	main_panel->peer_list_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(main_panel->peer_list_store));
 	g_signal_connect(main_panel->peer_list_view, "row-activated", G_CALLBACK(ball_main_panel_responed_row_activated), main_panel);
-	gtk_container_add(GTK_CONTAINER(main_panel->peer_scrolled_view), main_panel->peer_list_view);
 
 	main_panel->name_renderer = gtk_cell_renderer_text_new();
 
 	gtk_tree_view_insert_column_with_attributes(GTK_TREE_VIEW(main_panel->peer_list_view), -1, "Peer Name", main_panel->name_renderer, "text", PEER_INFO_NAME, NULL);
+
+	main_panel->peer_scrolled_view = gtk_scrolled_window_new(NULL, NULL);
+	gtk_container_add(GTK_CONTAINER(main_panel->peer_scrolled_view), main_panel->peer_list_view);
+
+	main_panel->button_conn = gtk_button_new_with_label("");
+	g_signal_connect(main_panel->button_conn, "clicked", G_CALLBACK(ball_main_panel_responed_conn_button), main_panel);
+
+	main_panel->label_conn = gtk_label_new("Connection status:");
+	main_panel->label_connect = gtk_label_new("On");
+	main_panel->label_disconnect = gtk_label_new("Off");
+
+	main_panel->image_connect = gtk_image_new_from_stock(GTK_STOCK_CONNECT, GTK_ICON_SIZE_SMALL_TOOLBAR);
+	main_panel->image_disconnect = gtk_image_new_from_stock(GTK_STOCK_DISCONNECT, GTK_ICON_SIZE_SMALL_TOOLBAR);
+
+	hbox_status = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+	gtk_box_pack_start(GTK_BOX(hbox_status), main_panel->label_conn, FALSE, FALSE, 2);
+	gtk_box_pack_start(GTK_BOX(hbox_status), main_panel->label_connect, FALSE, FALSE, 2);
+	gtk_box_pack_start(GTK_BOX(hbox_status), main_panel->label_disconnect, FALSE, FALSE, 2);
+	gtk_box_pack_start(GTK_BOX(hbox_status), main_panel->image_connect, TRUE, TRUE, 2);
+	gtk_box_pack_start(GTK_BOX(hbox_status), main_panel->image_disconnect, TRUE, TRUE, 2);
+	gtk_box_pack_start(GTK_BOX(hbox_status), main_panel->button_conn, TRUE, TRUE, 2);
+
+	vbox_main = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	gtk_box_pack_start(GTK_BOX(vbox_main), main_panel->peer_scrolled_view, TRUE, TRUE, 2);
+	gtk_box_pack_start(GTK_BOX(vbox_main), hbox_status, FALSE, FALSE, 2);
+
+	gtk_container_add(GTK_CONTAINER(window), vbox_main);
+
+	main_panel->conn_status == FALSE;
 }
 
 GType ball_main_panel_get_type()

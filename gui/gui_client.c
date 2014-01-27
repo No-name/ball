@@ -48,17 +48,6 @@ GMutex mutex_for_message_need_sended;
 LIST_HEAD(message_comming);
 GMutex mutex_for_message_comming;
 
-enum {
-	BALL_COMM_INACTIVE,
-	BALL_COMM_ACTIVE,
-};
-
-enum {
-	BALL_TRANSFOR_INACTIVE,
-	BALL_TRANSFOR_INIT,
-	BALL_TRANSFOR_LOGIN,
-};
-
 int ball_transfor_active_flag = BALL_TRANSFOR_INACTIVE;
 
 void ball_destroy_endpoint(struct message_endpoint * endpoint)
@@ -399,6 +388,7 @@ void ball_test_simulate_peer_list()
 }
 #endif
 
+extern void ball_main_panel_swap_conn_status(BallMainPanel * main_panel);
 void ball_show_main_panel()
 {
 	GtkWidget * window;
@@ -409,6 +399,7 @@ void ball_show_main_panel()
 	window = ball_main_panel_new();
 	gtk_widget_show_all(window);
 	gtk_window_set_title(GTK_WINDOW(window), ball_get_myself_name());
+	ball_main_panel_swap_conn_status(BALL_MAIN_PANEL(window));
 
 	ball_set_main_panel(BALL_MAIN_PANEL(window));
 
@@ -451,6 +442,9 @@ int ball_main_panel_update_peer_list(struct message_packet * msg)
 
 	name = p;
 	p += name_len;
+
+	if (ball_peer_info_check_exist(name, name_len))
+		return FALSE;
 
 	peer = malloc(sizeof(struct peer_info));
 	memset(peer, 0, sizeof(struct peer_info));
