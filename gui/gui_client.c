@@ -389,6 +389,20 @@ void ball_test_simulate_peer_list()
 #endif
 
 extern void ball_main_panel_swap_conn_status(BallMainPanel * main_panel);
+
+gboolean ball_update_conn_status(gpointer user_data)
+{
+	BallMainPanel * main_panel = BALL_MAIN_PANEL(user_data);
+
+	if ((ball_transfor_active_flag == BALL_TRANSFOR_INACTIVE && main_panel->conn_status)
+	   || (ball_transfor_active_flag != BALL_TRANSFOR_INACTIVE && main_panel->conn_status == FALSE))
+	{
+		ball_main_panel_swap_conn_status(main_panel);
+	}
+
+	return TRUE;
+}
+
 void ball_show_main_panel()
 {
 	GtkWidget * window;
@@ -404,6 +418,8 @@ void ball_show_main_panel()
 	ball_set_main_panel(BALL_MAIN_PANEL(window));
 
 	gtk_widget_destroy(GTK_WIDGET(ball_get_login_panel()));
+
+	g_timeout_add_seconds(1, ball_update_conn_status, window);
 }
 
 int ball_msg_proc_login_respond(struct message_packet * msg)
@@ -513,7 +529,7 @@ int main(int ac, char ** av)
 
 	gtk_widget_show_all(window);
 
-	g_timeout_add_seconds(1, ball_process_comming_message, window);
+	g_timeout_add_seconds(1, ball_process_comming_message, NULL);
 
 	gtk_main();
 
